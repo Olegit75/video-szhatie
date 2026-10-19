@@ -260,6 +260,10 @@ class MainActivity : ComponentActivity() {
 
     private fun saveToGallery() {
         val file = outputFile?.takeIf { it.exists() } ?: return
+        if (Build.VERSION.SDK_INT < 29) {
+            saveToGalleryLegacy(file)
+            return
+        }
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, file.name)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
@@ -281,6 +285,42 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             contentResolver.delete(target, null, null)
             showError("Не удалось сохранить в галерею: ${e.message}")
+        }
+    }
+
+    /** Android 7–9: пишем в Movies/Аджилити напрямую (нужно разрешение на память). */
+    private fun saveToGalleryLegacy(file: File) {
+        if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingLegacySave = true
+            requestPermissions(arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
+            return
+        }
+        try {
+            @Suppress("DEPRECATION")
+            val dir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MOVIES), "Аджилити")
+            dir.mkdirs()
+            val target = File(dir, file.name)
+            file.copyTo(target, overwrite = true)
+            android.media.MediaScannerConnection.scanFile(this, arrayOf(target.absolutePath), arrayOf("video/mp4"), null)
+            Toast.makeText(this, "Сохранено в папку Movies/Аджилити", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            showError("Не удалось сохранить в галерею: ${e.message}")
+        }
+    }
+
+    private var pendingLegacySave = false
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1 && pendingLegacySave) {
+            pendingLegacySave = false
+            if (grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                outputFile?.takeIf { it.exists() }?.let { saveToGalleryLegacy(it) }
+            } else {
+                Toast.makeText(this, "Без разрешения на память сохранить нельзя — используйте «Отправить»", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
