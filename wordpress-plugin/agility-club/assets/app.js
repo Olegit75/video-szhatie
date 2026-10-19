@@ -481,6 +481,17 @@
   var pendingSeek = null;
   var notesFilter = "own"; // own | onmine | all
   try { notesFilter = localStorage.getItem("acl-notes-filter") || "own"; } catch (e) {}
+  var notesGroup = "day"; // day | video
+  var notesQuery = "";
+  try { notesGroup = localStorage.getItem("acl-notes-group") || "day"; } catch (e) {}
+  function hl(text, words) {
+    var h = esc(text);
+    words.forEach(function (w) {
+      var ew = esc(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      h = h.replace(new RegExp("(" + ew + ")", "gi"), "<mark>$1</mark>");
+    });
+    return h;
+  }
   function viewNotes(v) {
     var a = S.role === "admin";
     var rows = [];
@@ -495,40 +506,89 @@
     var keys = a ? ["own", "onmine", "all"] : ["own", "onmine"];
     if (keys.indexOf(notesFilter) < 0) notesFilter = "own";
     var label = { own: "Мои заметки", onmine: "К моим видео", all: "Все заметки" };
-    var list = rows.filter(F[notesFilter]).sort(function (p, r) {
-      return r.x.date.localeCompare(p.x.date) || (+p.x.id - +r.x.id) || p.n.t - r.n.t;
-    });
-    var byDate = {};
-    list.forEach(function (r) { (byDate[r.x.date] = byDate[r.x.date] || []).push(r); });
-    var html = '<div><h1>Заметки</h1><p class="lead">На что обратить внимание в видео. Нажмите на заметку — откроется видео на этом моменте. Новую заметку добавляют под роликом кнопкой «📝 На что обратить внимание».</p></div>' +
+    function vtime(x) { return (/(\d{1,2}:\d{2})\s*$/.exec(x.title) || [])[1] || x.title; }
+    function ctitle(x) { var c = x.course_id && courseById(x.course_id); return c ? c.title : ""; }
+
+    v.innerHTML = '<div><h1>Заметки</h1><p class="lead">На что обратить внимание в видео. Нажмите на заметку — откроется видео на этом моменте. Новую заметку добавляют под роликом кнопкой «📝 На что обратить внимание».</p></div>' +
       '<div class="row" style="gap:8px" role="group" aria-label="Какие заметки показать">' + keys.map(function (k) {
         return '<button type="button" class="btn small ' + (notesFilter === k ? "" : "ghost") + '" data-nf="' + k + '">' + label[k] + " (" + rows.filter(F[k]).length + ")</button>";
-      }).join("") + "</div>";
-    var dates = Object.keys(byDate).sort().reverse();
-    html += dates.length ? dates.map(function (d) {
-      return '<section class="panel" style="display:grid;gap:6px"><h2>' + esc(fmtDate(d)) + "</h2>" + byDate[d].map(function (r) {
-        var vt = (/(\d{1,2}:\d{2})\s*$/.exec(r.x.title) || [])[1] || r.x.title;
-        return '<div class="acl-note" style="display:flex;flex-wrap:wrap;gap:4px 8px;align-items:flex-start;padding:6px 8px;border-left:3px solid var(--accent);background:var(--soft,rgba(0,0,0,.03));border-radius:6px">' +
-          '<button type="button" class="btn small ghost" data-go="' + r.x.id + '" data-gd="' + r.x.date + '" data-gt="' + r.n.t + '" style="white-space:nowrap;font-family:ui-monospace,monospace">▶ ' + esc(vt) + " · " + fmtMs(r.n.t) + " · кадр " + r.n.frame + "</button>" +
-          '<div style="flex:1 1 180px;min-width:0"><div style="white-space:pre-wrap">' + esc(r.n.text) + '</div><div class="status">' + esc(r.n.who) + (r.x.course_id && courseById(r.x.course_id) ? " · 🏁 " + esc(courseById(r.x.course_id).title) : "") + "</div></div>" +
-          (r.n.can_delete ? '<button type="button" class="btn small ghost" data-dnote2="' + r.n.id + '" title="Удалить заметку">✕</button>' : "") + "</div>";
-      }).join("") + "</section>";
-    }).join("") : '<div class="panel empty">' + (notesFilter === "own" ? "Вы ещё не писали заметок. Откройте видео во вкладке «Видео» и нажмите «📝 На что обратить внимание»." : notesFilter === "onmine" ? "К вашим видео (где стоит «Это я») заметок пока нет." : "Заметок пока нет.") + "</div>";
-    v.innerHTML = html;
+      }).join("") + "</div>" +
+      '<div class="row" style="gap:8px;align-items:center">' +
+      '<input type="search" id="acl-nq" placeholder="🔍 Поиск: слово, имя, трасса…" value="' + esc(notesQuery) + '" style="flex:1;min-width:180px" aria-label="Поиск по заметкам">' +
+      '<div class="row" style="gap:6px" role="group" aria-label="Группировка">' +
+      '<button type="button" class="btn small ' + (notesGroup === "day" ? "" : "ghost") + '" data-ng="day">По дням</button>' +
+      '<button type="button" class="btn small ' + (notesGroup === "video" ? "" : "ghost") + '" data-ng="video">По видео</button></div></div>' +
+      '<div id="acl-nlist" style="display:grid;gap:12px"></div>';
+
+    function noteRow(r, words, showVideo) {
+      var who = esc(r.n.who), ct = ctitle(r.x);
+      return '<div class="acl-note" style="display:flex;flex-wrap:wrap;gap:4px 8px;align-items:flex-start;padding:6px 8px;border-left:3px solid var(--accent);background:var(--soft,rgba(0,0,0,.03));border-radius:6px">' +
+        '<button type="button" class="btn small ghost" data-go="' + r.x.id + '" data-gt="' + r.n.t + '" style="white-space:nowrap;font-family:ui-monospace,monospace">▶ ' + (showVideo ? esc(vtime(r.x)) + " · " : "") + fmtMs(r.n.t) + " · кадр " + r.n.frame + "</button>" +
+        '<div style="flex:1 1 180px;min-width:0"><div style="white-space:pre-wrap">' + hl(r.n.text, words) + '</div><div class="status">' + hl(r.n.who, words) +
+        (showVideo && ct ? " · 🏁 " + hl(ct, words) : "") + "</div></div>" +
+        (r.n.can_delete ? '<button type="button" class="btn small ghost" data-dnote2="' + r.n.id + '" title="Удалить заметку">✕</button>' : "") + "</div>";
+    }
+
+    function drawList() {
+      var words = notesQuery.toLowerCase().split(/\s+/).filter(Boolean);
+      var list = rows.filter(F[notesFilter]).filter(function (r) {
+        if (!words.length) return true;
+        var hay = (r.n.text + " " + r.n.who + " " + ctitle(r.x) + " " + r.x.title + " " + fmtDate(r.x.date)).toLowerCase();
+        return words.every(function (w) { return hay.indexOf(w) >= 0; });
+      }).sort(function (p, r) {
+        return r.x.date.localeCompare(p.x.date) || (+p.x.id - +r.x.id) || p.n.t - r.n.t;
+      });
+      var box = q("#acl-nlist");
+      if (!list.length) {
+        box.innerHTML = '<div class="panel empty">' + (words.length ? "Ничего не найдено по запросу «" + esc(notesQuery) + "»." :
+          notesFilter === "own" ? "Вы ещё не писали заметок. Откройте видео во вкладке «Видео» и нажмите «📝 На что обратить внимание»." :
+          notesFilter === "onmine" ? "К вашим видео (где стоит «Это я») заметок пока нет." : "Заметок пока нет.") + "</div>";
+        return;
+      }
+      var html = words.length ? '<p class="status" style="margin:0">Найдено: ' + list.length + "</p>" : "";
+      if (notesGroup === "video") {
+        var order = [], byV = {};
+        list.forEach(function (r) { if (!byV[r.x.id]) { byV[r.x.id] = []; order.push(r.x); } byV[r.x.id].push(r); });
+        html += order.map(function (x) {
+          var ct = ctitle(x);
+          return '<section class="panel" style="display:grid;gap:6px">' +
+            '<div class="row" style="justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">' + esc(fmtDate(x.date)) + " · " + esc(vtime(x)) + "</h2>" +
+            '<button type="button" class="btn small" data-open="' + x.id + '">▶ Открыть видео</button></div>' +
+            (ct || (x.tagged || []).length ? '<div class="status">' + (ct ? "🏁 " + hl(ct, words) : "") + (ct && (x.tagged || []).length ? " · " : "") + ((x.tagged || []).length ? "На видео: " + esc(x.tagged.join(", ")) : "") + "</div>" : "") +
+            byV[x.id].map(function (r) { return noteRow(r, words, false); }).join("") + "</section>";
+        }).join("");
+      } else {
+        var byDate = {};
+        list.forEach(function (r) { (byDate[r.x.date] = byDate[r.x.date] || []).push(r); });
+        html += Object.keys(byDate).sort().reverse().map(function (d) {
+          return '<section class="panel" style="display:grid;gap:6px"><h2>' + esc(fmtDate(d)) + "</h2>" +
+            byDate[d].map(function (r) { return noteRow(r, words, true); }).join("") + "</section>";
+        }).join("");
+      }
+      box.innerHTML = html;
+      Array.prototype.forEach.call(box.querySelectorAll("button[data-go]"), function (b) {
+        b.addEventListener("click", function () { showVideo(b.dataset.go, +b.dataset.gt, "notes"); });
+      });
+      Array.prototype.forEach.call(box.querySelectorAll("button[data-open]"), function (b) {
+        b.addEventListener("click", function () { showVideo(b.dataset.open, null, "notes"); });
+      });
+      Array.prototype.forEach.call(box.querySelectorAll("button[data-dnote2]"), function (b) {
+        b.addEventListener("click", function () {
+          if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Удалить?"; setTimeout(function () { if (b.isConnected) { delete b.dataset.armed; b.textContent = "✕"; } }, 3000); return; }
+          act("/video/note/" + b.dataset.dnote2, "DELETE").then(function () { toast("Заметка удалена."); }, function () {});
+        });
+      });
+    }
+    drawList();
+
     qa("button[data-nf]").forEach(function (b) {
       b.addEventListener("click", function () { notesFilter = b.dataset.nf; try { localStorage.setItem("acl-notes-filter", notesFilter); } catch (e) {} render(); });
     });
-    qa("button[data-go]").forEach(function (b) {
-      b.addEventListener("click", function () {
-        showVideo(b.dataset.go, +b.dataset.gt, "notes");
-      });
+    qa("button[data-ng]").forEach(function (b) {
+      b.addEventListener("click", function () { notesGroup = b.dataset.ng; try { localStorage.setItem("acl-notes-group", notesGroup); } catch (e) {} render(); });
     });
-    qa("button[data-dnote2]").forEach(function (b) {
-      b.addEventListener("click", function () {
-        if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Удалить?"; setTimeout(function () { if (b.isConnected) { delete b.dataset.armed; b.textContent = "✕"; } }, 3000); return; }
-        act("/video/note/" + b.dataset.dnote2, "DELETE").then(function () { toast("Заметка удалена."); }, function () {});
-      });
-    });
+    var inp = q("#acl-nq");
+    inp.addEventListener("input", function () { notesQuery = inp.value; drawList(); });
   }
 
   /* Заметки «На что обратить внимание» с моментом видео */

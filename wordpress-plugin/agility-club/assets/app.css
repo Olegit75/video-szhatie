@@ -96,3 +96,5 @@ body.acl-body{margin:0;background:#f3f5f8}
 
 /* покадровый режим: на всякий случай прячем большой кружок «пуск» у встроенного плеера */
 .acl video:not([controls])::-webkit-media-controls-overlay-play-button,.acl video:not([controls])::-webkit-media-controls{display:none!important}
+
+.acl mark{background:#ffe08a;color:inherit;border-radius:3px;padding:0 1px}
