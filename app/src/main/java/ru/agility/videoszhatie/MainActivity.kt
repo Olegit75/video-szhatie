@@ -567,6 +567,10 @@ class MainActivity : ComponentActivity() {
             setText(value)
             inputType = if (password) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            isFocusableInTouchMode = true
+            // Клавиатура открывается при каждом нажатии на поле — даже если окно открыто повторно
+            setOnClickListener { showKeyboard(this) }
+            setOnFocusChangeListener { v, has -> if (has) showKeyboard(v) }
             box.addView(this)
         }
         box.addView(TextView(this).apply {
@@ -593,6 +597,10 @@ class MainActivity : ComponentActivity() {
             .putString("apppass", passF.text.toString().trim())
             .apply()
         dlg.setOnShowListener {
+            dlg.window?.clearFlags(
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
+            )
+            dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { save(); dlg.dismiss() }
             dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                 save()
@@ -606,6 +614,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         dlg.show()
+    }
+
+    private fun showKeyboard(v: View) {
+        v.requestFocus()
+        v.post {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(v, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 
     // ================================================================ одно видео
