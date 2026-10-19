@@ -179,6 +179,7 @@ class ACL_API {
 			$out['sessions'][] = $row;
 		}
 
+		$out['courses'] = ACL_Course::all();
 		if ( 'member' === $role ) {
 			$out['me'] = array( 'id' => $me['id'], 'name' => $me['name'] );
 		}
@@ -322,6 +323,7 @@ class ACL_API {
 		$id = (int) $r['id'];
 		$wpdb->delete( ACL_DB::t( 'sessions' ), array( 'id' => $id ) );
 		$wpdb->delete( ACL_DB::t( 'marks' ), array( 'session_id' => $id ) );
+		ACL_Course::delete_for_session( $id );
 		return self::state();
 	}
 

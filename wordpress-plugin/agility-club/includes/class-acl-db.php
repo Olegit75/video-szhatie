@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ACL_DB {
 
-	const DB_VERSION = '4';
+	const DB_VERSION = '5';
 
 	public static function t( $name ) {
 		global $wpdb;
@@ -93,6 +93,28 @@ class ACL_DB {
 			created datetime DEFAULT NULL,
 			PRIMARY KEY  (video_id,user_id),
 			KEY user_id (user_id)
+			) $c;"
+		);
+		dbDelta(
+			'CREATE TABLE ' . self::t( 'courses' ) . " (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			session_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			title varchar(200) NOT NULL,
+			note text,
+			image varchar(500) NOT NULL DEFAULT '',
+			created datetime DEFAULT NULL,
+			PRIMARY KEY  (id),
+			KEY session_id (session_id)
+			) $c;"
+		);
+		dbDelta(
+			'CREATE TABLE ' . self::t( 'course_votes' ) . " (
+			course_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			comment text,
+			created datetime DEFAULT NULL,
+			PRIMARY KEY  (course_id,user_id)
 			) $c;"
 		);
 		update_option( 'acl_db_version', self::DB_VERSION );

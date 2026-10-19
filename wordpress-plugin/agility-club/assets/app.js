@@ -43,6 +43,19 @@
       });
     });
   }
+  function apiForm(path, formData) {
+    return fetch(CFG.api + path, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "X-WP-Nonce": CFG.nonce },
+      body: formData
+    }).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error((j && j.message) || "Ошибка сервера");
+        return j;
+      }, function () { throw new Error(r.status === 413 ? "Картинка слишком большая для хостинга." : "Ошибка сервера " + r.status); });
+    });
+  }
   function act(path, method, body) {
     busy = true;
     return api(path, method, body).then(function (st) { S = st; busy = false; render(); return st; })
@@ -70,7 +83,7 @@
       '<div class="who-am-i">' + auth + "</div></div></header>" +
       '<main><div class="wrap" id="acl-view"></div></main>';
     qa("nav button").forEach(function (b) {
-      b.addEventListener("click", function () { tab = b.dataset.tab; if (tab === "video") openDate = null; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
+      b.addEventListener("click", function () { tab = b.dataset.tab; if (tab === "video") openDate = null; if (tab === "schedule") openSession = null; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
     });
     var v = q("#acl-view");
     ({ schedule: viewSchedule, profile: viewProfile, mine: viewMine, sessions: viewSessions, debts: viewDebts, news: viewNews, video: viewVideo, settings: viewSettings }[tab])(v);
@@ -81,24 +94,45 @@
     return (S.sessions || []).filter(function (s) { return s.date >= S.today; })
       .sort(function (a, b) { return (a.date + a.start).localeCompare(b.date + b.start); });
   }
+  var openSession = null;
+  try { var sm = /^#schedule-(\d+)$/.exec(location.hash); if (sm) { openSession = +sm[1]; tab = "schedule"; } } catch (e) {}
+  function setSession(id) {
+    openSession = id;
+    try { history.replaceState(null, "", id ? "#schedule-" + id : "#schedule"); } catch (e) {}
+    render();
+    window.scrollTo(0, 0);
+  }
+  function coursesFor(sid) { return (S.courses || []).filter(function (c) { return c.session_id === sid; }); }
+
   function viewSchedule(v) {
+    if (openSession) {
+      var ses = (S.sessions || []).filter(function (x) { return x.id === openSession; })[0];
+      if (ses && S.courses) return viewSession(v, ses);
+      openSession = null;
+    }
     var up = upcoming(), r = S.role, o = org();
+    var canCourses = r === "member" || r === "admin";
     var cards = up.map(function (s) {
       var extra = "";
-      if (r === "member" || r === "admin") {
+      if (canCourses) {
         var names = (s.org_in && o ? [o.name] : []).concat((s.att || []).map(memberName));
         extra = '<div class="who">' + (names.length ? "Записаны: " + esc(names.join(", ")) : "Пока никто не записался") + "</div>" +
           '<div class="who">С участника сейчас: <b>' + rub(s.per) + "</b></div>";
+        var row = "";
         if (r === "member") {
-          extra += '<div><button type="button" class="btn small ' + (s.my ? "ghost" : "") + '" data-join="' + s.id + '">' + (s.my ? "Отменить запись" : "Записаться") + "</button></div>";
+          row += '<button type="button" class="btn small ' + (s.my ? "ghost" : "") + '" data-join="' + s.id + '">' + (s.my ? "Отменить запись" : "Записаться") + "</button>";
         }
+        var cs = coursesFor(s.id);
+        row += '<button type="button" class="btn small ghost" data-ses="' + s.id + '">Трассы (' + cs.length + ")</button>";
+        extra += '<div class="row" style="gap:8px">' + row + "</div>";
       }
       return '<article class="slot"><div class="d">' + esc(fmtDate(s.date)) + '</div><div class="t">' + esc(s.start || "время уточняется") + " · " + esc(s.hours) + " ч</div>" + extra + "</article>";
     }).join("");
-    var hint = r === "guest" ? "Чтобы записываться и видеть стоимость, войдите или зарегистрируйтесь." : r === "pending" ? "Выберите себя на вкладке «Кто вы?» — после подтверждения сможете записываться." : "";
+    var hint = r === "guest" ? "Чтобы записываться и видеть стоимость, войдите или зарегистрируйтесь." : r === "pending" ? "Выберите себя на вкладке «Кто вы?» — после подтверждения сможете записываться и предлагать трассы." : "Нажмите «Трассы», чтобы предложить схему на тренировку или проголосовать за чужую.";
     v.innerHTML = '<div><h1>Ближайшие тренировки</h1>' + (hint ? '<p class="lead">' + hint + "</p>" : "") + "</div>" +
       (up.length ? '<div class="cards">' + cards + "</div>" : '<div class="panel empty">Новых тренировок пока нет.</div>') +
       (S.news && S.news[0] ? '<div class="panel"><h2>Последняя новость</h2>' + postHtml(S.news[0]) + "</div>" : "");
+    qa("button[data-ses]").forEach(function (b) { b.addEventListener("click", function () { setSession(+b.dataset.ses); }); });
     qa("button[data-join]").forEach(function (b) {
       b.addEventListener("click", function () {
         var s = S.sessions.filter(function (x) { return String(x.id) === b.dataset.join; })[0];
@@ -107,6 +141,93 @@
         act("/mark", "POST", { session_id: s.id, member_id: S.me.id, mark: s.my ? "" : "Да" }).catch(function () {});
       });
     });
+  }
+
+  /* ---------- Тренировка: трассы и голосование ---------- */
+  function viewSession(v, ses) {
+    var cs = coursesFor(ses.id);
+    var top = 0;
+    cs.forEach(function (c) { top = Math.max(top, c.votes.length); });
+    var past = ses.date < S.today;
+    var items = cs.slice().sort(function (a, b) { return b.votes.length - a.votes.length || a.id - b.id; }).map(function (c) {
+      var leader = top > 0 && c.votes.length === top;
+      var votes = c.votes.length
+        ? '<ul style="margin:6px 0 0;padding-left:18px">' + c.votes.map(function (vt) { return "<li><b>" + esc(vt.name) + ":</b> " + esc(vt.comment) + "</li>"; }).join("") + "</ul>"
+        : '<div class="status">Голосов пока нет.</div>';
+      var voteBox = "";
+      if (!c.mine && !past) {
+        voteBox = '<form class="row" data-vote="' + c.id + '" style="gap:8px;align-items:end">' +
+          '<label style="flex:1;min-width:200px" for="vc-' + c.id + '">' + (c.voted ? "Ваш голос — можно изменить комментарий" : "Голосовать: почему эта трасса?") +
+          '<textarea id="vc-' + c.id + '" rows="2" style="min-height:0" required placeholder="Например: хорошая связка на смену сторон">' + esc(c.my_vote) + "</textarea></label>" +
+          '<button class="btn small">' + (c.voted ? "Сохранить" : "Голосовать") + "</button>" +
+          (c.voted ? '<button type="button" class="btn small ghost" data-unvote="' + c.id + '">Отозвать голос</button>' : "") + "</form>";
+      }
+      return '<article class="panel" style="display:grid;gap:10px">' +
+        '<div class="row" style="justify-content:space-between;align-items:center"><h2>' + (leader ? "🏆 " : "") + esc(c.title) +
+        ' <span class="pill ' + (c.votes.length ? "ok" : "warn") + '">' + c.votes.length + " " + plural(c.votes.length, "голос", "голоса", "голосов") + "</span></h2>" +
+        (c.can_delete ? '<button type="button" class="btn small danger" data-dcourse="' + c.id + '">Удалить</button>' : "") + "</div>" +
+        '<div class="status">Предложил(а): ' + esc(c.author) + (c.mine ? " (вы)" : "") + "</div>" +
+        (c.image ? '<a href="' + esc(c.image) + '" target="_blank" rel="noopener"><img src="' + esc(c.image) + '" alt="Схема трассы «' + esc(c.title) + '»" style="width:100%;max-height:70vh;object-fit:contain;border-radius:8px;background:var(--bg);border:1px solid var(--line)"></a>' : "") +
+        (c.note ? '<p style="margin:0;white-space:pre-wrap">' + esc(c.note) + "</p>" : "") +
+        votes + voteBox + "</article>";
+    }).join("");
+    var form = past ? "" :
+      '<details class="panel"' + (cs.length ? "" : " open") + '><summary style="cursor:pointer;font-weight:600">+ Предложить трассу</summary>' +
+      '<form id="acl-cf" style="display:grid;gap:10px;margin-top:12px">' +
+      '<label for="cf-title">Название<input id="cf-title" required maxlength="200" placeholder="Например: Джампинг на смены сторон"></label>' +
+      '<label for="cf-img">Схема трассы (фото или скриншот: JPG, PNG, WebP)<input id="cf-img" type="file" accept="image/*" required></label>' +
+      '<img id="cf-prev" alt="" hidden style="max-width:100%;max-height:300px;object-fit:contain;border-radius:8px">' +
+      '<label for="cf-note">Комментарий (необязательно)<textarea id="cf-note" rows="3" style="min-height:0" placeholder="Что отрабатываем, на что обратить внимание"></textarea></label>' +
+      '<div class="row"><button class="btn" id="cf-send">Предложить</button><span class="status" id="cf-status"></span></div></form></details>';
+    v.innerHTML = '<div class="row"><button type="button" class="btn small ghost" data-back="1">← Расписание</button></div>' +
+      "<div><h1>Трассы · " + esc(fmtDate(ses.date)) + "</h1>" +
+      '<p class="lead">' + esc(ses.start || "") + " · " + esc(ses.hours) + " ч. " +
+      (past ? "Тренировка прошла — голосование закрыто." : "Предложите свою схему или проголосуйте за чужую с комментарием. За свою трассу голосовать нельзя.") + "</p></div>" +
+      form + (items || '<div class="panel empty">Трасс пока не предложили.</div>');
+
+    q("[data-back]").addEventListener("click", function () { setSession(null); });
+    var f = q("#acl-cf");
+    if (f) {
+      q("#cf-img").addEventListener("change", function () {
+        var file = this.files && this.files[0], pv = q("#cf-prev");
+        if (file) { try { pv.src = URL.createObjectURL(file); pv.hidden = false; } catch (e) {} }
+      });
+      f.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var file = q("#cf-img").files[0];
+        if (!file) { toast("Прикрепите картинку схемы."); return; }
+        if (file.size > 15 * 1048576) { toast("Картинка больше 15 МБ — сожмите или сделайте скриншот."); return; }
+        var fd = new FormData();
+        fd.append("session_id", ses.id);
+        fd.append("title", q("#cf-title").value.trim());
+        fd.append("note", q("#cf-note").value.trim());
+        fd.append("image", file, file.name || "trassa.jpg");
+        q("#cf-send").disabled = true;
+        q("#cf-status").textContent = "Загружаю…";
+        apiForm("/courses", fd).then(function (st) { S = st; render(); toast("Трасса предложена."); }, function (err) {
+          q("#cf-send").disabled = false;
+          q("#cf-status").textContent = "";
+          toast(err.message);
+        });
+      });
+    }
+    qa("form[data-vote]").forEach(function (fm) {
+      fm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var id = fm.dataset.vote, txt = fm.querySelector("textarea").value.trim();
+        if (!txt) { toast("Напишите комментарий к голосу."); return; }
+        act("/courses/" + id + "/vote", "POST", { comment: txt }).then(function () { toast("Голос учтён."); }, function () {});
+      });
+    });
+    qa("button[data-unvote]").forEach(function (b) { b.addEventListener("click", function () { act("/courses/" + b.dataset.unvote + "/vote", "DELETE").then(function () { toast("Голос отозван."); }, function () {}); }); });
+    armDelete("dcourse", function (id) { return act("/courses/" + id, "DELETE"); });
+  }
+
+  function plural(n, one, few, many) {
+    var m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
   }
 
   /* ---------- Кто вы? (аккаунт без привязки) ---------- */
@@ -498,6 +619,10 @@
     if (busy || !S) return;
     var a = document.activeElement;
     if (a && root.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+    // Не перерисовываем, пока заполняют форму трассы или голос — иначе введённое пропадёт
+    var img = root.querySelector("#cf-img"), ttl = root.querySelector("#cf-title");
+    if ((img && img.files && img.files.length) || (ttl && ttl.value)) return;
+    if (Array.prototype.some.call(root.querySelectorAll("textarea"), function (t) { return t.value !== t.defaultValue; })) return;
     // Не перерисовываем, пока смотрят видео — иначе ролик остановится
     if (Array.prototype.some.call(root.querySelectorAll("video"), function (vd) { return !vd.paused && !vd.ended; })) return;
     api("/state").then(function (st) { S = st; render(); }).catch(function () {});
