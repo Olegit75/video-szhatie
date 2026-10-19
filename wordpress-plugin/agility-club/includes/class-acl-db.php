@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ACL_DB {
 
-	const DB_VERSION = '2';
+	const DB_VERSION = '3';
 
 	public static function t( $name ) {
 		global $wpdb;
@@ -82,6 +82,15 @@ class ACL_DB {
 			size bigint(20) unsigned NOT NULL DEFAULT 0,
 			PRIMARY KEY  (id),
 			KEY date (date)
+			) $c;"
+		);
+		dbDelta(
+			'CREATE TABLE ' . self::t( 'video_tags' ) . " (
+			video_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			created datetime DEFAULT NULL,
+			PRIMARY KEY  (video_id,user_id),
+			KEY user_id (user_id)
 			) $c;"
 		);
 		update_option( 'acl_db_version', self::DB_VERSION );
@@ -176,8 +185,44 @@ class ACL_DB {
 		);
 	}
 
-	public static function videos() {
+	/**
+	 * Видео с отметками «Это я».
+	 * $uid — текущий пользователь (для mine), $names — показывать ли, кто отмечен (только вошедшим).
+	 */
+	public static function videos( $uid = 0, $names = false ) {
 		global $wpdb;
-		return $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
+		$rows = $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
+		if ( ! $rows ) {
+			return array();
+		}
+		$tags  = $wpdb->get_results( 'SELECT video_id, user_id FROM ' . self::t( 'video_tags' ), ARRAY_A ); // phpcs:ignore
+		$by    = array();
+		$users = array();
+		foreach ( (array) $tags as $t ) {
+			$by[ (int) $t['video_id'] ][] = (int) $t['user_id'];
+			$users[ (int) $t['user_id'] ] = true;
+		}
+		$label = array();
+		if ( $names && $users ) {
+			foreach ( self::members( false ) as $m ) {
+				if ( $m['user_id'] && isset( $users[ $m['user_id'] ] ) ) {
+					$label[ $m['user_id'] ] = $m['name'];
+				}
+			}
+			foreach ( array_keys( $users ) as $u ) {
+				if ( ! isset( $label[ $u ] ) ) {
+					$ud          = get_userdata( $u );
+					$label[ $u ] = $ud ? $ud->display_name : '';
+				}
+			}
+		}
+		foreach ( $rows as &$r ) {
+			$ids         = isset( $by[ (int) $r['id'] ] ) ? $by[ (int) $r['id'] ] : array();
+			$r['mine']   = $uid && in_array( (int) $uid, $ids, true );
+			$r['tagged'] = $names ? array_values( array_filter( array_map( static function ( $u ) use ( $label ) {
+				return isset( $label[ $u ] ) ? $label[ $u ] : '';
+			}, $ids ) ) ) : array();
+		}
+		return $rows;
 	}
 }

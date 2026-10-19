@@ -33,6 +33,11 @@ class ACL_Video {
 			'callback'            => array( __CLASS__, 'chunk' ),
 			'permission_callback' => $admin,
 		) );
+		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/me', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'toggle_me' ),
+			'permission_callback' => 'is_user_logged_in',
+		) );
 		register_rest_route( ACL_API::NS, '/video/delete-date', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'delete_date' ),
@@ -236,6 +241,25 @@ class ACL_Video {
 			}
 		}
 		$wpdb->delete( ACL_DB::t( 'videos' ), array( 'id' => (int) $id ) );
+		$wpdb->delete( ACL_DB::t( 'video_tags' ), array( 'video_id' => (int) $id ) );
+	}
+
+	/** «Это я»: отметить себя на видео или снять отметку. */
+	public static function toggle_me( WP_REST_Request $r ) {
+		global $wpdb;
+		$id  = (int) $r['id'];
+		$uid = get_current_user_id();
+		if ( ! $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM ' . ACL_DB::t( 'videos' ) . ' WHERE id = %d', $id ) ) ) { // phpcs:ignore
+			return self::err( 'Видео не найдено.', 404 );
+		}
+		$t      = ACL_DB::t( 'video_tags' );
+		$exists = $wpdb->get_var( $wpdb->prepare( "SELECT 1 FROM $t WHERE video_id = %d AND user_id = %d", $id, $uid ) ); // phpcs:ignore
+		if ( $exists ) {
+			$wpdb->delete( $t, array( 'video_id' => $id, 'user_id' => $uid ) );
+		} else {
+			$wpdb->insert( $t, array( 'video_id' => $id, 'user_id' => $uid, 'created' => current_time( 'mysql' ) ) );
+		}
+		return ACL_API::state();
 	}
 
 	public static function delete_date( WP_REST_Request $r ) {

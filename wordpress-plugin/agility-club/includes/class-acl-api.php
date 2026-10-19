@@ -120,7 +120,7 @@ class ACL_API {
 				'newPost'  => 'admin' === $role ? admin_url( 'post-new.php' ) : '',
 			),
 			'news'      => self::news(),
-			'videos'    => ACL_DB::videos(),
+			'videos'    => ACL_DB::videos( get_current_user_id(), is_user_logged_in() ),
 			'sessions'  => array(),
 		);
 

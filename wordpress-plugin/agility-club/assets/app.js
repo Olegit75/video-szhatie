@@ -235,10 +235,17 @@
 
   /* ---------- Видео ---------- */
   function mb(b) { return b ? (b / 1048576).toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " МБ" : ""; }
+  var onlyMine = false;
+  try { onlyMine = localStorage.getItem("acl-only-mine") === "1"; } catch (e) {}
+
   function viewVideo(v) {
     var a = S.role === "admin";
+    var logged = !!S.user;
+    var all = S.videos || [];
+    var mineCount = all.filter(function (x) { return x.mine; }).length;
+    var shown = logged && onlyMine ? all.filter(function (x) { return x.mine; }) : all;
     var byDate = {};
-    (S.videos || []).forEach(function (x) { (byDate[x.date] = byDate[x.date] || []).push(x); });
+    shown.forEach(function (x) { (byDate[x.date] = byDate[x.date] || []).push(x); });
     var dates = Object.keys(byDate).sort().reverse();
     var groups = dates.map(function (d) {
       var list = byDate[d], total = 0;
@@ -248,19 +255,47 @@
         var media = local
           ? '<video controls preload="metadata" playsinline src="' + esc(x.url) + '" style="width:100%;max-height:70vh;border-radius:8px;background:#000"></video>'
           : '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Открыть видео</a>';
-        return '<div class="post"><h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>" + media +
-          (a ? '<div><button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button></div>' : "") + "</div>";
+        var tagged = (x.tagged || []).length ? '<div class="status">На видео: ' + esc(x.tagged.join(", ")) + "</div>" : "";
+        var actions = (logged ? '<button type="button" class="btn small ' + (x.mine ? "" : "ghost") + '" data-me="' + x.id + '" aria-pressed="' + (x.mine ? "true" : "false") + '">' + (x.mine ? "✓ Это я" : "Это я") + "</button>" : "") +
+          (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>' : "");
+        return '<div class="post"><h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>" + media + tagged +
+          (actions ? '<div class="row" style="gap:8px">' + actions + "</div>" : "") + "</div>";
       }).join("");
       return '<section class="panel"><div class="row" style="justify-content:space-between;align-items:center"><h2>' + esc(fmtDate(d)) +
         ' <span class="status">' + list.length + " видео" + (total ? " · " + mb(total) : "") + "</span></h2>" +
-        (a ? '<button type="button" class="btn small danger" data-dday="' + d + '">Удалить весь день</button>' : "") + "</div>" + items + "</section>";
+        (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + d + '">Удалить весь день</button>' : "") + "</div>" + items + "</section>";
     }).join("");
+    var filter = logged
+      ? '<div class="row" style="gap:8px" role="group" aria-label="Какие видео показать">' +
+        '<button type="button" class="btn small ' + (onlyMine ? "ghost" : "") + '" data-filter="all">Все видео (' + all.length + ")</button>" +
+        '<button type="button" class="btn small ' + (onlyMine ? "" : "ghost") + '" data-filter="mine">Только мои (' + mineCount + ")</button></div>"
+      : "";
+    var empty = logged && onlyMine
+      ? '<div class="panel empty">Вы ещё не отметили себя ни на одном видео. Нажмите «Это я» под роликом, где вы с собакой.</div>'
+      : '<div class="panel empty">Видео пока нет.</div>';
     v.innerHTML = '<div><h1>Видео тренировок</h1><p class="lead">' +
-      (a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную." : "Записи тренировок по дням.") + "</p></div>" +
+      (a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную."
+         : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои»."
+         : "Записи тренировок по дням. Войдите, чтобы отмечать свои видео.") + "</p></div>" + filter +
       (a ? '<details class="panel"><summary style="cursor:pointer">Добавить ссылку вручную</summary><form class="row" id="acl-vf" style="margin-top:12px"><label for="acl-vd">Дата<input type="date" id="acl-vd" value="' + S.today + '"></label><label for="acl-vt" style="flex:1;min-width:180px">Название<input id="acl-vt" required placeholder="Слалом, Дейзи"></label><label for="acl-vu" style="flex:2;min-width:220px">Ссылка<input id="acl-vu" type="url" required placeholder="https://vkvideo.ru/..."></label><button class="btn">Добавить</button></form></details>' : "") +
-      (groups || '<div class="panel empty">Видео пока нет.</div>');
+      (groups || empty);
     var f = q("#acl-vf");
     if (f) f.addEventListener("submit", function (e) { e.preventDefault(); act("/videos", "POST", { date: q("#acl-vd").value, title: q("#acl-vt").value, url: q("#acl-vu").value }).catch(function () {}); });
+    qa("button[data-filter]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        onlyMine = b.dataset.filter === "mine";
+        try { localStorage.setItem("acl-only-mine", onlyMine ? "1" : "0"); } catch (e) {}
+        render();
+      });
+    });
+    qa("button[data-me]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (busy) return;
+        b.disabled = true;
+        var y = window.scrollY;
+        act("/video/" + b.dataset.me + "/me", "POST").then(function () { window.scrollTo(0, y); }, function () {});
+      });
+    });
     armDelete("dv", function (id) { return act("/videos/" + id, "DELETE"); });
     qa("button[data-dday]").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -347,6 +382,8 @@
     if (busy || !S) return;
     var a = document.activeElement;
     if (a && root.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+    // Не перерисовываем, пока смотрят видео — иначе ролик остановится
+    if (Array.prototype.some.call(root.querySelectorAll("video"), function (vd) { return !vd.paused && !vd.ended; })) return;
     api("/state").then(function (st) { S = st; render(); }).catch(function () {});
   }
   document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
