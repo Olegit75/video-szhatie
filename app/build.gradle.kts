@@ -9,10 +9,10 @@ android {
 
     defaultConfig {
         applicationId = "ru.agility.videoszhatie"
-        minSdk = 24          // Android 7+
+        minSdk = 29          // Android 10+
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.0"
+        versionCode = 4
+        versionName = "2.0.1"
     }
 
     buildTypes {
