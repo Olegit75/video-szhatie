@@ -397,6 +397,10 @@ class ACL_Video {
 		foreach ( $ids as $vid ) {
 			self::delete_row( (int) $vid );
 		}
+		// Страховка: отметки и заметки, оставшиеся без видео
+		$v = ACL_DB::t( 'videos' );
+		$wpdb->query( 'DELETE n FROM ' . ACL_DB::t( 'video_notes' ) . " n LEFT JOIN $v v ON v.id = n.video_id WHERE v.id IS NULL" ); // phpcs:ignore
+		$wpdb->query( 'DELETE g FROM ' . ACL_DB::t( 'video_tags' ) . " g LEFT JOIN $v v ON v.id = g.video_id WHERE v.id IS NULL" ); // phpcs:ignore
 		return count( $ids );
 	}
 
