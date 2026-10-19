@@ -431,7 +431,7 @@
   function itemTagged(x) {
     var parts = [];
     if ((x.tagged || []).length) parts.push("На видео: " + x.tagged.join(", "));
-    if (x.marked) parts.push("🗑 Удалится " + (x.days_left ? "через " + x.days_left + " дн." : "сегодня ночью") + (x.marked_by ? " (пометил: " + x.marked_by + ")" : ""));
+    if (x.marked) parts.push("🗑 Удалится " + (x.days_left ? "через " + x.days_left + " " + plural(x.days_left, "день", "дня", "дней") : "сегодня ночью") + (x.marked_by ? " (пометил: " + x.marked_by + ")" : ""));
     return parts.join(" · ");
   }
 
@@ -592,7 +592,7 @@
     Array.prototype.forEach.call(scope.querySelectorAll("button[data-mark]"), function (b) {
       b.addEventListener("click", function () {
         toggleMe(b.dataset.mark, b, "/delete", function (x) {
-          return x.marked ? "Видео помечено: удалится через " + x.days_left + " дн. Пометку можно снять." : "Удаление отменено.";
+          return x.marked ? "Видео помечено: удалится через " + x.days_left + " " + plural(x.days_left, "день", "дня", "дней") + ". Пометку можно снять." : "Удаление отменено.";
         });
       });
     });
@@ -624,7 +624,7 @@
         ["all", "mine", "fav"].map(function (k) { return '<button type="button" class="btn small ' + (vFilter === k ? "" : "ghost") + '" data-filter="' + k + '">' + filterLabels()[k] + "</button>"; }).join("") + "</div>"
       : "";
     var lead = a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную."
-      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои», а лучшие — ⭐ в избранное. Ненужное отметьте «Удалить»: видео сотрётся через " + (+(S.video_days || 30)) + " дней, до этого пометку можно снять."
+      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои», а лучшие — ⭐ в избранное. Ненужное отметьте «Удалить»: видео сотрётся через " + (+(S.video_days || 30)) + " " + plural(+(S.video_days || 30), "день", "дня", "дней") + ", до этого пометку можно снять."
       : "Записи тренировок по дням. Войдите, чтобы отмечать свои видео.";
     var html;
 
