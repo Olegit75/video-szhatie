@@ -38,6 +38,11 @@ class ACL_Video {
 			'callback'            => array( __CLASS__, 'toggle_me' ),
 			'permission_callback' => 'is_user_logged_in',
 		) );
+		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/delete', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'delete_own' ),
+			'permission_callback' => 'is_user_logged_in',
+		) );
 		register_rest_route( ACL_API::NS, '/video/delete-date', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'delete_date' ),
@@ -262,6 +267,45 @@ class ACL_Video {
 		return ACL_API::state();
 	}
 
+	/** Удаление участником: только если он отметил себя «Это я» и больше никто не отмечен. */
+	public static function delete_own( WP_REST_Request $r ) {
+		global $wpdb;
+		$id  = (int) $r['id'];
+		$uid = get_current_user_id();
+		if ( ! current_user_can( ACL_CAP ) ) {
+			$ids = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( 'SELECT user_id FROM ' . ACL_DB::t( 'video_tags' ) . ' WHERE video_id = %d', $id ) ) ); // phpcs:ignore
+			if ( ! in_array( $uid, $ids, true ) ) {
+				return self::err( 'Удалить можно только видео, где вы отметили себя «Это я».', 403 );
+			}
+			if ( count( array_unique( $ids ) ) > 1 ) {
+				return self::err( 'На этом видео отмечены и другие участники — удалить его нельзя.', 403 );
+			}
+		}
+		self::delete_row( $id );
+		return ACL_API::state();
+	}
+
+	/** Автоудаление: видео старше N дней (по дате тренировки). Запускается раз в сутки. */
+	public static function cleanup() {
+		global $wpdb;
+		$days = (int) ACL_DB::settings()['video_days'];
+		if ( $days < 1 ) {
+			return 0; // 0 — хранить бессрочно
+		}
+		$cut = gmdate( 'Y-m-d', current_time( 'timestamp' ) - $days * DAY_IN_SECONDS );
+		$ids = $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM ' . ACL_DB::t( 'videos' ) . ' WHERE date < %s', $cut ) ); // phpcs:ignore
+		foreach ( $ids as $vid ) {
+			self::delete_row( (int) $vid );
+		}
+		return count( $ids );
+	}
+
+	public static function schedule() {
+		if ( ! wp_next_scheduled( 'acl_video_cleanup' ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', 'acl_video_cleanup' );
+		}
+	}
+
 	public static function delete_date( WP_REST_Request $r ) {
 		global $wpdb;
 		$date = (string) $r['date'];
@@ -285,3 +329,5 @@ add_filter( 'determine_current_user', array( 'ACL_Video', 'log_auth' ), 99 );
 add_filter( 'application_password_is_api_request', static function ( $is ) {
 	return $is || ACL_Video::is_club_api_request();
 } );
+add_action( 'acl_video_cleanup', array( 'ACL_Video', 'cleanup' ) );
+add_action( 'init', array( 'ACL_Video', 'schedule' ) );

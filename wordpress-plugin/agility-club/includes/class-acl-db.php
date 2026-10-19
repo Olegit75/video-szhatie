@@ -104,6 +104,7 @@ class ACL_DB {
 			'cleanup_min'  => 10,
 			'org_shares'   => 2,
 			'org_discount' => 300,
+			'video_days'   => 30,
 		);
 	}
 
@@ -219,6 +220,8 @@ class ACL_DB {
 		foreach ( $rows as &$r ) {
 			$ids         = isset( $by[ (int) $r['id'] ] ) ? $by[ (int) $r['id'] ] : array();
 			$r['mine']   = $uid && in_array( (int) $uid, $ids, true );
+			// Удалить может администратор или единственный отметивший себя участник
+			$r['can_delete'] = current_user_can( ACL_CAP ) || ( $uid && array( (int) $uid ) === array_values( array_unique( $ids ) ) );
 			$r['tagged'] = $names ? array_values( array_filter( array_map( static function ( $u ) use ( $label ) {
 				return isset( $label[ $u ] ) ? $label[ $u ] : '';
 			}, $ids ) ) ) : array();

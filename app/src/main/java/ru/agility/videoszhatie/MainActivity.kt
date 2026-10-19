@@ -43,6 +43,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
@@ -89,8 +90,9 @@ class MainActivity : ComponentActivity() {
 
     /** Качество: короткая сторона кадра и целевой битрейт. */
     private enum class Quality(val label: String, val shortSide: Int, val bitrate: Int) {
-        Q720("720p — компактно (≈ 20 МБ/мин)", 720, 2_500_000),
-        Q1080("1080p — для разбора (≈ 40 МБ/мин)", 1080, 5_000_000),
+        ECO("720p экономно (≈ 9 МБ/мин) — для сайта", 720, 1_200_000),
+        Q720("720p стандарт (≈ 19 МБ/мин)", 720, 2_500_000),
+        Q1080("1080p для разбора (≈ 38 МБ/мин)", 1080, 5_000_000),
     }
 
     /** Видео из галереи за выбранный день. */
@@ -174,7 +176,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun selectedQuality(): Quality =
-        if (qualityGroup.checkedRadioButtonId == Quality.Q1080.ordinal + 1) Quality.Q1080 else Quality.Q720
+        Quality.entries.firstOrNull { it.ordinal + 1 == qualityGroup.checkedRadioButtonId } ?: Quality.ECO
 
     private fun busy() = dayJob?.isActive == true || singleJob?.isActive == true
 
@@ -324,7 +326,7 @@ class MainActivity : ComponentActivity() {
         val queue = clips.filter { it.check.isChecked && !it.done }
         if (queue.isEmpty()) return
         val quality = selectedQuality()
-        prefs.edit().putInt("quality", quality.ordinal).apply()
+        prefs.edit().putInt("quality2", quality.ordinal).apply()
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(day.time)
         val titleDate = SimpleDateFormat("d MMMM", Locale("ru")).format(day.time)
         val tf = SimpleDateFormat("HH:mm", Locale("ru"))
@@ -450,7 +452,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val item = EditedMediaItem.Builder(MediaItem.fromUri(uri))
-                .setEffects(Effects(emptyList(), listOf(Presentation.createForHeight(targetHeight))))
+                // Не больше 30 кадр/с: видео в 60 кадр/с почти вдвое тяжелее, а для разбора трассы 30 хватает
+                .setEffects(
+                    Effects(
+                        emptyList(),
+                        listOf(FrameDropEffect.createDefaultFrameDropEffect(30f), Presentation.createForHeight(targetHeight)),
+                    )
+                )
                 .build()
             t.start(item, out.absolutePath)
             handler.post(tick)
@@ -632,7 +640,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         val quality = selectedQuality()
-        prefs.edit().putInt("quality", quality.ordinal).apply()
+        prefs.edit().putInt("quality2", quality.ordinal).apply()
         val inputSize = querySize(uri)
         val dir = File(cacheDir, "compressed").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
@@ -887,7 +895,8 @@ class MainActivity : ComponentActivity() {
             })
         }
 
-        val savedQ = prefs.getInt("quality", 0)
+        // Новая настройка (с версии 2.1): по умолчанию «экономно»
+        val savedQ = prefs.getInt("quality2", Quality.ECO.ordinal)
         qualityGroup = RadioGroup(this).apply {
             orientation = RadioGroup.VERTICAL
             Quality.entries.forEach { q ->
@@ -899,7 +908,7 @@ class MainActivity : ComponentActivity() {
                     setPadding(dp(4), dp(8), 0, dp(8))
                 })
             }
-            check((Quality.entries.getOrNull(savedQ) ?: Quality.Q720).ordinal + 1)
+            check((Quality.entries.getOrNull(savedQ) ?: Quality.ECO).ordinal + 1)
         }
 
         // --- тренировка → сайт

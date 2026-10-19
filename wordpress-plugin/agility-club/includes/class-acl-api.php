@@ -121,6 +121,7 @@ class ACL_API {
 			),
 			'news'      => self::news(),
 			'videos'    => ACL_DB::videos( get_current_user_id(), is_user_logged_in() ),
+			'video_days' => (int) $cfg['video_days'],
 			'sessions'  => array(),
 		);
 
@@ -327,7 +328,7 @@ class ACL_API {
 	public static function settings_save( WP_REST_Request $r ) {
 		global $wpdb;
 		$s = ACL_DB::settings();
-		foreach ( array( 'rate', 'free_hours', 'setup_min', 'cleanup_min', 'org_shares', 'org_discount' ) as $k ) {
+		foreach ( array( 'rate', 'free_hours', 'setup_min', 'cleanup_min', 'org_shares', 'org_discount', 'video_days' ) as $k ) {
 			if ( isset( $r[ $k ] ) && is_numeric( $r[ $k ] ) ) {
 				$s[ $k ] = max( 0, (float) $r[ $k ] );
 			}

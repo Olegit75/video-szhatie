@@ -255,9 +255,23 @@
       : '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Открыть видео</a>';
     var tagged = (x.tagged || []).length ? '<div class="status">На видео: ' + esc(x.tagged.join(", ")) + "</div>" : "";
     var actions = (logged ? '<button type="button" class="btn small ' + (x.mine ? "" : "ghost") + '" data-me="' + x.id + '" aria-pressed="' + (x.mine ? "true" : "false") + '">' + (x.mine ? "✓ Это я" : "Это я") + "</button>" : "") +
-      (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>' : "");
+      (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>'
+         : x.can_delete ? '<button type="button" class="btn small danger" data-dvown="' + x.id + '">Удалить</button>' : "");
     return '<div class="post"><h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>" + media + tagged +
       (actions ? '<div class="row" style="gap:8px">' + actions + "</div>" : "") + "</div>";
+  }
+
+  function daysLeft(d) {
+    var keep = +((S.settings || {}).video_days || S.video_days || 30);
+    if (!keep) return null;
+    var p = d.split("-"), t = S.today.split("-");
+    var age = Math.round((new Date(+t[0], +t[1] - 1, +t[2]) - new Date(+p[0], +p[1] - 1, +p[2])) / 86400000);
+    return Math.max(0, keep - age);
+  }
+  function leftLabel(d) {
+    var n = daysLeft(d);
+    if (n === null) return "";
+    return n === 0 ? "удалится сегодня ночью" : "удалится через " + n + " дн.";
   }
 
   function viewVideo(v) {
@@ -277,7 +291,7 @@
         '<button type="button" class="btn small ' + (onlyMine ? "" : "ghost") + '" data-filter="mine">Только мои (' + mineCount + ")</button></div>"
       : "";
     var lead = a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную."
-      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои»."
+      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои», а ненужные удалить самим. Видео хранятся " + (+((S.settings || {}).video_days || S.video_days || 30)) + " дней."
       : "Записи тренировок по дням. Войдите, чтобы отмечать свои видео.";
     var html;
 
@@ -288,7 +302,7 @@
       html = '<div class="row" style="gap:8px;align-items:center"><button type="button" class="btn small ghost" data-back="1">← Все дни</button></div>' +
         '<div class="row" style="justify-content:space-between;align-items:center"><h1>' + esc(fmtDate(openDate)) + '</h1>' +
         (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + openDate + '">Удалить весь день</button>' : "") + "</div>" +
-        '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? " · только мои" : "") + "</p>" + filter +
+        '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? " · только мои" : "") + (leftLabel(openDate) ? " · " + leftLabel(openDate) : "") + "</p>" + filter +
         '<section class="panel">' + list.map(function (x) { return videoItem(x, a, logged); }).join("") + "</section>";
     } else {
       // ---- список дней
@@ -303,6 +317,7 @@
           return '<button type="button" class="slot" data-day="' + d + '" style="text-align:left;cursor:pointer;font:inherit;color:inherit">' +
             '<span class="d">' + esc(fmtDate(d)) + "</span>" +
             '<span class="t">' + list.length + " видео" + (total ? " · " + mb(total) : "") + "</span>" +
+            (leftLabel(d) ? '<span class="who">' + leftLabel(d) + "</span>" : "") +
             (logged && mine ? '<span class="pill ok" style="justify-self:start">мои: ' + mine + "</span>" : "") + "</button>";
         }).join("") + "</div>";
       }).join("");
@@ -335,6 +350,7 @@
       });
     });
     armDelete("dv", function (id) { return act("/videos/" + id, "DELETE"); });
+    armDelete("dvown", function (id) { return act("/video/" + id + "/delete", "POST").then(function () { toast("Видео удалено."); }); });
     qa("button[data-dday]").forEach(function (b) {
       b.addEventListener("click", function () {
         if (b.dataset.armed) { act("/video/delete-date", "POST", { date: b.dataset.dday }).then(function () { setVideoDate(null); toast("Видео за день удалены."); }, function () {}); return; }
@@ -365,7 +381,8 @@
       '<label for="c-clean">Уборка, мин<input type="number" id="c-clean" value="' + st.cleanup_min + '"></label>' +
       '<label for="c-org">Организатор<input id="c-org" value="' + esc(o ? o.name : "") + '"></label>' +
       '<label for="c-shares">Долей организатора<input type="number" id="c-shares" value="' + st.org_shares + '"></label>' +
-      '<label for="c-disc">Скидка организатору, ₽<input type="number" id="c-disc" value="' + st.org_discount + '" step="50"></label></div>' +
+      '<label for="c-disc">Скидка организатору, ₽<input type="number" id="c-disc" value="' + st.org_discount + '" step="50"></label>' +
+      '<label for="c-vdays">Хранить видео, дней (0 — бессрочно)<input type="number" id="c-vdays" value="' + (st.video_days == null ? 30 : st.video_days) + '" min="0"></label></div>' +
       '<label for="c-mem">Участники, по одному в строке (собака владельца — отдельной строкой). Удалённые из списка скрываются, их история сохраняется.<textarea id="c-mem">' + esc(mem.map(function (m) { return m.name; }).join("\n")) + "</textarea></label>" +
       '<div class="row"><button class="btn">Сохранить</button></div></form>';
 
@@ -396,7 +413,7 @@
       });
       act("/settings", "POST", {
         rate: +q("#c-rate").value, free_hours: +q("#c-free").value, setup_min: +q("#c-setup").value, cleanup_min: +q("#c-clean").value,
-        org_shares: +q("#c-shares").value, org_discount: +q("#c-disc").value, organizer: q("#c-org").value.trim(), members: list
+        org_shares: +q("#c-shares").value, org_discount: +q("#c-disc").value, video_days: +q("#c-vdays").value, organizer: q("#c-org").value.trim(), members: list
       }).then(function () { toast("Сохранено."); }, function () {});
     });
   }
