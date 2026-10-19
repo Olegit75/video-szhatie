@@ -725,7 +725,7 @@
       '<label for="c-org">Организатор<input id="c-org" value="' + esc(o ? o.name : "") + '"></label>' +
       '<label for="c-shares">Долей организатора<input type="number" id="c-shares" value="' + st.org_shares + '"></label>' +
       '<label for="c-disc">Скидка организатору, ₽<input type="number" id="c-disc" value="' + st.org_discount + '" step="50"></label>' +
-      '<label for="c-vdays">Помеченные «Удалить» стираются через, дней<input type="number" id="c-vdays" value="' + (st.video_days == null ? 30 : st.video_days) + '" min="1"></label></div>' +
+      '<label for="c-vdays" title="Через сколько дней стирается видео, помеченное «Удалить»">Удаление видео, дней<input type="number" id="c-vdays" value="' + (st.video_days == null ? 30 : st.video_days) + '" min="1"></label></div>' +
       '<label for="c-mem">Участники, по одному в строке (собака владельца — отдельной строкой). Удалённые из списка скрываются, их история сохраняется.<textarea id="c-mem">' + esc(mem.map(function (m) { return m.name; }).join("\n")) + "</textarea></label>" +
       '<div class="row"><button class="btn">Сохранить</button></div></form>';
 

@@ -84,6 +84,7 @@ body.acl-body{margin:0;background:#f3f5f8}
 .acl .status{font-size:13px;color:var(--muted)}
 .acl .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
 .acl .grid2 input{width:100%}
+.acl .grid2>label{align-content:end}
 .acl .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;max-width:calc(100% - 32px);z-index:20}
 .acl .acl-video{width:100%;max-height:70vh;border-radius:8px;background:#000;display:block}
 .acl .acl-vsmall{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
