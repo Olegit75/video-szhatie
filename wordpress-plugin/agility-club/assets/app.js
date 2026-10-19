@@ -248,17 +248,76 @@
     window.scrollTo(0, 0);
   }
 
+  var bigView = true;
+  try { bigView = localStorage.getItem("acl-video-view") !== "small"; } catch (e) {}
+
+  function meButton(x) {
+    return '<button type="button" class="btn small ' + (x.mine ? "" : "ghost") + '" data-me="' + x.id + '" aria-pressed="' + (x.mine ? "true" : "false") + '">' + (x.mine ? "✓ Это я" : "Это я") + "</button>";
+  }
+  function itemActions(x, a, logged) {
+    return (logged ? meButton(x) : "") +
+      (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>'
+         : x.can_delete ? '<button type="button" class="btn small danger" data-dvown="' + x.id + '">Удалить</button>' : "");
+  }
+  function itemTagged(x) {
+    return (x.tagged || []).length ? "На видео: " + x.tagged.join(", ") : "";
+  }
+
   function videoItem(x, a, logged) {
     var local = +x.local === 1;
     var media = local
-      ? '<video controls preload="metadata" playsinline src="' + esc(x.url) + '" style="width:100%;max-height:70vh;border-radius:8px;background:#000"></video>'
+      ? '<video controls preload="metadata" playsinline src="' + esc(x.url) + '" class="acl-video"></video>'
       : '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Открыть видео</a>';
-    var tagged = (x.tagged || []).length ? '<div class="status">На видео: ' + esc(x.tagged.join(", ")) + "</div>" : "";
-    var actions = (logged ? '<button type="button" class="btn small ' + (x.mine ? "" : "ghost") + '" data-me="' + x.id + '" aria-pressed="' + (x.mine ? "true" : "false") + '">' + (x.mine ? "✓ Это я" : "Это я") + "</button>" : "") +
-      (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>'
-         : x.can_delete ? '<button type="button" class="btn small danger" data-dvown="' + x.id + '">Удалить</button>' : "");
-    return '<div class="post"><h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>" + media + tagged +
-      (actions ? '<div class="row" style="gap:8px">' + actions + "</div>" : "") + "</div>";
+    var time = (/(\d{1,2}:\d{2})\s*$/.exec(x.title) || [])[1];
+    var head = bigView
+      ? '<h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>"
+      : '<h3 style="font-size:14px">' + esc(time || x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>";
+    return '<div class="post acl-vitem" data-vid="' + x.id + '">' + head + media +
+      '<div class="status" data-tagged="' + x.id + '">' + esc(itemTagged(x)) + "</div>" +
+      '<div class="row" style="gap:8px" data-acts="' + x.id + '">' + itemActions(x, a, logged) + "</div></div>";
+  }
+
+  /* «Это я» без перерисовки страницы: меняем только кнопку, подпись и счётчики */
+  function toggleMe(id, btn) {
+    if (btn.dataset.wait) return;
+    btn.dataset.wait = "1";
+    btn.disabled = true;
+    api("/video/" + id + "/me", "POST").then(function (st) {
+      S = st;
+      var x = (S.videos || []).filter(function (v) { return String(v.id) === String(id); })[0];
+      if (!x) { render(); return; }
+      if (onlyMine && !x.mine) { render(); return; } // в режиме «Только мои» ролик должен исчезнуть
+      var acts = root.querySelector('[data-acts="' + id + '"]');
+      if (acts) { acts.innerHTML = itemActions(x, S.role === "admin", !!S.user); bindVideoButtons(acts); }
+      var tg = root.querySelector('[data-tagged="' + id + '"]');
+      if (tg) tg.textContent = itemTagged(x);
+      var mineCount = (S.videos || []).filter(function (v) { return v.mine; }).length;
+      var fm = root.querySelector('button[data-filter="mine"]');
+      if (fm) fm.textContent = "Только мои (" + mineCount + ")";
+      toast(x.mine ? "Отмечено: это вы." : "Отметка снята.");
+    }, function (e) {
+      btn.disabled = false;
+      delete btn.dataset.wait;
+      toast(e.message || "Не сохранилось. Попробуйте ещё раз.");
+    });
+  }
+
+  function bindVideoButtons(scope) {
+    Array.prototype.forEach.call(scope.querySelectorAll("button[data-me]"), function (b) {
+      b.addEventListener("click", function () { toggleMe(b.dataset.me, b); });
+    });
+    Array.prototype.forEach.call(scope.querySelectorAll("button[data-dv]"), function (b) { armOne(b, "dv", function (id) { return act("/videos/" + id, "DELETE"); }); });
+    Array.prototype.forEach.call(scope.querySelectorAll("button[data-dvown]"), function (b) {
+      armOne(b, "dvown", function (id) { return act("/video/" + id + "/delete", "POST").then(function () { toast("Видео удалено."); }); });
+    });
+  }
+
+  function armOne(b, attr, fn) {
+    b.addEventListener("click", function () {
+      if (b.dataset.armed) { fn(b.getAttribute("data-" + attr)).catch(function () {}); return; }
+      b.dataset.armed = "1"; b.textContent = "Точно удалить?";
+      setTimeout(function () { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Удалить"; } }, 3000);
+    });
   }
 
   function daysLeft(d) {
@@ -303,7 +362,10 @@
         '<div class="row" style="justify-content:space-between;align-items:center"><h1>' + esc(fmtDate(openDate)) + '</h1>' +
         (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + openDate + '">Удалить весь день</button>' : "") + "</div>" +
         '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? " · только мои" : "") + (leftLabel(openDate) ? " · " + leftLabel(openDate) : "") + "</p>" + filter +
-        '<section class="panel">' + list.map(function (x) { return videoItem(x, a, logged); }).join("") + "</section>";
+        '<div class="row" style="gap:8px" role="group" aria-label="Размер видео">' +
+        '<button type="button" class="btn small ' + (bigView ? "" : "ghost") + '" data-view="big">Крупно</button>' +
+        '<button type="button" class="btn small ' + (bigView ? "ghost" : "") + '" data-view="small">Плиткой</button></div>' +
+        '<section class="panel ' + (bigView ? "acl-vbig" : "acl-vsmall") + '">' + list.map(function (x) { return videoItem(x, a, logged); }).join("") + "</section>";
     } else {
       // ---- список дней
       var months = {};
@@ -341,16 +403,14 @@
         render();
       });
     });
-    qa("button[data-me]").forEach(function (b) {
+    bindVideoButtons(v);
+    qa("button[data-view]").forEach(function (b) {
       b.addEventListener("click", function () {
-        if (busy) return;
-        b.disabled = true;
-        var y = window.scrollY;
-        act("/video/" + b.dataset.me + "/me", "POST").then(function () { window.scrollTo(0, y); }, function () {});
+        bigView = b.dataset.view === "big";
+        try { localStorage.setItem("acl-video-view", bigView ? "big" : "small"); } catch (e) {}
+        render();
       });
     });
-    armDelete("dv", function (id) { return act("/videos/" + id, "DELETE"); });
-    armDelete("dvown", function (id) { return act("/video/" + id + "/delete", "POST").then(function () { toast("Видео удалено."); }); });
     qa("button[data-dday]").forEach(function (b) {
       b.addEventListener("click", function () {
         if (b.dataset.armed) { act("/video/delete-date", "POST", { date: b.dataset.dday }).then(function () { setVideoDate(null); toast("Видео за день удалены."); }, function () {}); return; }
