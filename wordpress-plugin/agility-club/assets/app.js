@@ -442,12 +442,52 @@
       ? '<video controls preload="metadata" playsinline src="' + esc(x.url) + '" class="acl-video"></video>'
       : '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Открыть видео</a>';
     var time = (/(\d{1,2}:\d{2})\s*$/.exec(x.title) || [])[1];
-    var head = bigView
-      ? '<h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>"
-      : '<h3 style="font-size:14px">' + esc(time || x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>";
+    var head = '<h3 data-vhead="' + x.id + '"' + (bigView ? "" : ' style="font-size:14px"') + ">" + headInner(x, bigView ? x.title : (time || x.title)) + "</h3>";
     return '<div class="post acl-vitem" data-vid="' + x.id + '">' + head + media + runBlock(x) + '<div data-notes="' + x.id + '">' + notesInner(x) + "</div>" +
       '<div class="status" data-tagged="' + x.id + '">' + esc(itemTagged(x)) + "</div>" +
       '<div class="row" style="gap:8px" data-acts="' + x.id + '">' + itemActions(x, a, logged) + "</div></div>";
+  }
+
+  /* Своё название видео */
+  function headInner(x, base) {
+    var t = (/(\d{1,2}:\d{2})\s*$/.exec(x.title) || [])[1] || base;
+    return (x.label ? "<b>" + esc(x.label) + '</b> <span class="status">' + esc(t) + "</span>" : esc(base)) +
+      (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") +
+      (x.can_run ? ' <button type="button" class="btn small ghost" data-rn="' + x.id + '" title="Дать название видео" style="padding:2px 8px">✏️</button>' : "");
+  }
+  function bindRename(scope) {
+    Array.prototype.forEach.call(scope.querySelectorAll("button[data-rn]"), function (b) {
+      b.addEventListener("click", function () {
+        var id = b.dataset.rn, h = b.closest("[data-vhead]");
+        if (h.nextElementSibling && h.nextElementSibling.hasAttribute("data-rnf")) { h.nextElementSibling.querySelector("input").focus(); return; }
+        var x = (S.videos || []).filter(function (v) { return String(v.id) === String(id); })[0] || {};
+        var fm = document.createElement("form");
+        fm.setAttribute("data-rnf", "");
+        fm.className = "row";
+        fm.style.cssText = "gap:6px;margin:4px 0;align-items:center";
+        fm.innerHTML = '<input maxlength="200" placeholder="Например: Слалом, Дейзи" style="flex:1;min-width:150px" value="' + esc(x.label || "") + '">' +
+          '<button class="btn small">Сохранить</button><button type="button" class="btn small ghost" data-rnc>Отмена</button>';
+        h.insertAdjacentElement("afterend", fm);
+        var inp = fm.querySelector("input"); inp.focus(); inp.select();
+        fm.querySelector("[data-rnc]").addEventListener("click", function () { fm.remove(); });
+        fm.addEventListener("submit", function (e) {
+          e.preventDefault();
+          api("/video/" + id + "/name", "POST", { name: inp.value }).then(function (st) {
+            S = st;
+            var nx = (S.videos || []).filter(function (v) { return String(v.id) === String(id); })[0];
+            if (nx) {
+              var big = h.getAttribute("style") == null;
+              var tm = (/(\d{1,2}:\d{2})\s*$/.exec(nx.title) || [])[1];
+              h.innerHTML = headInner(nx, big ? nx.title : (tm || nx.title));
+              bindRename(h);
+              var h1 = root.querySelector("[data-onetitle]"); if (h1) h1.textContent = nx.label || nx.title;
+            }
+            fm.remove();
+            toast(nx && nx.label ? "Название сохранено." : "Название убрано.");
+          }, function (err) { toast(err.message); });
+        });
+      });
+    });
   }
 
   function courseById(id) { return (S.course_titles || []).filter(function (c) { return c.id === id; })[0]; }
@@ -506,7 +546,7 @@
     var keys = a ? ["own", "onmine", "all"] : ["own", "onmine"];
     if (keys.indexOf(notesFilter) < 0) notesFilter = "own";
     var label = { own: "Мои заметки", onmine: "К моим видео", all: "Все заметки" };
-    function vtime(x) { return (/(\d{1,2}:\d{2})\s*$/.exec(x.title) || [])[1] || x.title; }
+    function vtime(x) { var t = (/(\d{1,2}:\d{2})\s*$/.exec(x.title) || [])[1] || x.title; return x.label ? x.label + " · " + t : t; }
     function ctitle(x) { var c = x.course_id && courseById(x.course_id); return c ? c.title : ""; }
 
     v.innerHTML = '<div><h1>Заметки</h1><p class="lead">На что обратить внимание в видео. Нажмите на заметку — откроется видео на этом моменте. Новую заметку добавляют под роликом кнопкой «📝 На что обратить внимание».</p></div>' +
@@ -514,7 +554,7 @@
         return '<button type="button" class="btn small ' + (notesFilter === k ? "" : "ghost") + '" data-nf="' + k + '">' + label[k] + " (" + rows.filter(F[k]).length + ")</button>";
       }).join("") + "</div>" +
       '<div class="row" style="gap:8px;align-items:center">' +
-      '<input type="search" id="acl-nq" placeholder="🔍 Поиск: слово, имя, трасса…" value="' + esc(notesQuery) + '" style="flex:1;min-width:180px" aria-label="Поиск по заметкам">' +
+      '<input type="search" id="acl-nq" placeholder="🔍 Поиск: слово, имя, трасса, название видео…" value="' + esc(notesQuery) + '" style="flex:1;min-width:180px" aria-label="Поиск по заметкам">' +
       '<div class="row" style="gap:6px" role="group" aria-label="Группировка">' +
       '<button type="button" class="btn small ' + (notesGroup === "day" ? "" : "ghost") + '" data-ng="day">По дням</button>' +
       '<button type="button" class="btn small ' + (notesGroup === "video" ? "" : "ghost") + '" data-ng="video">По видео</button></div></div>' +
@@ -523,7 +563,7 @@
     function noteRow(r, words, showVideo) {
       var who = esc(r.n.who), ct = ctitle(r.x);
       return '<div class="acl-note" style="display:flex;flex-wrap:wrap;gap:4px 8px;align-items:flex-start;padding:6px 8px;border-left:3px solid var(--accent);background:var(--soft,rgba(0,0,0,.03));border-radius:6px">' +
-        '<button type="button" class="btn small ghost" data-go="' + r.x.id + '" data-gt="' + r.n.t + '" style="white-space:nowrap;font-family:ui-monospace,monospace">▶ ' + (showVideo ? esc(vtime(r.x)) + " · " : "") + fmtMs(r.n.t) + " · кадр " + r.n.frame + "</button>" +
+        '<button type="button" class="btn small ghost" data-go="' + r.x.id + '" data-gt="' + r.n.t + '" style="white-space:normal;text-align:left;font-family:ui-monospace,monospace">▶ ' + (showVideo ? hl(vtime(r.x), words) + " · " : "") + fmtMs(r.n.t) + " · кадр " + r.n.frame + "</button>" +
         '<div style="flex:1 1 180px;min-width:0"><div style="white-space:pre-wrap">' + hl(r.n.text, words) + '</div><div class="status">' + hl(r.n.who, words) +
         (showVideo && ct ? " · 🏁 " + hl(ct, words) : "") + "</div></div>" +
         (r.n.can_delete ? '<button type="button" class="btn small ghost" data-dnote2="' + r.n.id + '" title="Удалить заметку">✕</button>' : "") + "</div>";
@@ -533,7 +573,7 @@
       var words = notesQuery.toLowerCase().split(/\s+/).filter(Boolean);
       var list = rows.filter(F[notesFilter]).filter(function (r) {
         if (!words.length) return true;
-        var hay = (r.n.text + " " + r.n.who + " " + ctitle(r.x) + " " + r.x.title + " " + fmtDate(r.x.date)).toLowerCase();
+        var hay = (r.n.text + " " + r.n.who + " " + ctitle(r.x) + " " + r.x.title + " " + (r.x.label || "") + " " + fmtDate(r.x.date)).toLowerCase();
         return words.every(function (w) { return hay.indexOf(w) >= 0; });
       }).sort(function (p, r) {
         return r.x.date.localeCompare(p.x.date) || (+p.x.id - +r.x.id) || p.n.t - r.n.t;
@@ -552,7 +592,7 @@
         html += order.map(function (x) {
           var ct = ctitle(x);
           return '<section class="panel" style="display:grid;gap:6px">' +
-            '<div class="row" style="justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">' + esc(fmtDate(x.date)) + " · " + esc(vtime(x)) + "</h2>" +
+            '<div class="row" style="justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">' + esc(fmtDate(x.date)) + " · " + hl(vtime(x), words) + "</h2>" +
             '<button type="button" class="btn small" data-open="' + x.id + '">▶ Открыть видео</button></div>' +
             (ct || (x.tagged || []).length ? '<div class="status">' + (ct ? "🏁 " + hl(ct, words) : "") + (ct && (x.tagged || []).length ? " · " : "") + ((x.tagged || []).length ? "На видео: " + esc(x.tagged.join(", ")) : "") + "</div>" : "") +
             byV[x.id].map(function (r) { return noteRow(r, words, false); }).join("") + "</section>";
@@ -782,6 +822,7 @@
   }
 
   function bindVideoButtons(scope) {
+    bindRename(scope);
     Array.prototype.forEach.call(scope.querySelectorAll("[data-timer]"), bindTimer);
     Array.prototype.forEach.call(scope.querySelectorAll("[data-notes]"), bindNotes);
     Array.prototype.forEach.call(scope.querySelectorAll("form[data-runf]"), function (fm) {
@@ -845,7 +886,7 @@
     v.innerHTML = '<div class="row" style="gap:8px;align-items:center">' +
       (backTo === "notes" ? '<button type="button" class="btn small ghost" data-back1="notes">← Заметки</button>' : "") +
       '<button type="button" class="btn small ghost" data-back1="day">← Все видео ' + esc(fmtDate(x.date)) + "</button></div>" +
-      "<h1>" + esc(x.title) + "</h1>" +
+      "<h1 data-onetitle>" + esc(x.label || x.title) + "</h1>" +
       '<section class="panel acl-vbig">' + item + "</section>";
     qa("button[data-back1]").forEach(function (b) {
       b.addEventListener("click", function () {

@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ACL_DB {
 
-	const DB_VERSION = '8';
+	const DB_VERSION = '9';
 
 	public static function t( $name ) {
 		global $wpdb;
@@ -86,6 +86,7 @@ class ACL_DB {
 			run_time decimal(7,2) DEFAULT NULL,
 			run_pen smallint(5) unsigned NOT NULL DEFAULT 0,
 			run_dq tinyint(1) NOT NULL DEFAULT 0,
+			label varchar(200) NOT NULL DEFAULT '',
 			PRIMARY KEY  (id),
 			KEY date (date)
 			) $c;"
@@ -235,7 +236,7 @@ class ACL_DB {
 	 */
 	public static function videos( $uid = 0, $names = false ) {
 		global $wpdb;
-		$rows = $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local, delete_after, delete_by, course_id, run_time, run_pen, run_dq FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
+		$rows = $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local, delete_after, delete_by, course_id, run_time, run_pen, run_dq, label FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
 		if ( ! $rows ) {
 			return array();
 		}

@@ -48,6 +48,11 @@ class ACL_Video {
 			'callback'            => array( __CLASS__, 'note_delete' ),
 			'permission_callback' => 'is_user_logged_in',
 		) );
+		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/name', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'rename' ),
+			'permission_callback' => 'is_user_logged_in',
+		) );
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/fav', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'toggle_fav' ),
@@ -322,6 +327,21 @@ class ACL_Video {
 			return self::err( 'Удалить может автор заметки или администратор.', 403 );
 		}
 		$wpdb->delete( ACL_DB::t( 'video_notes' ), array( 'id' => (int) $n->id ) );
+		return ACL_API::state();
+	}
+
+	/** Своё название видео (пусто — убрать). Может отметившийся «Это я» или администратор. */
+	public static function rename( WP_REST_Request $r ) {
+		global $wpdb;
+		$id = (int) $r['id'];
+		if ( ! $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM ' . ACL_DB::t( 'videos' ) . ' WHERE id = %d', $id ) ) ) { // phpcs:ignore
+			return self::err( 'Видео не найдено.', 404 );
+		}
+		if ( ! current_user_can( ACL_CAP ) && ! $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM ' . ACL_DB::t( 'video_tags' ) . ' WHERE video_id = %d AND user_id = %d', $id, get_current_user_id() ) ) ) { // phpcs:ignore
+			return self::err( 'Сначала отметьте себя на видео кнопкой «Это я».', 403 );
+		}
+		$name = mb_substr( trim( sanitize_text_field( (string) $r['name'] ) ), 0, 200 );
+		$wpdb->update( ACL_DB::t( 'videos' ), array( 'label' => $name ), array( 'id' => $id ) );
 		return ACL_API::state();
 	}
 
