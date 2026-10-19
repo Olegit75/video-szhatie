@@ -715,8 +715,7 @@ class MainActivity : ComponentActivity() {
     /** Android 7–9: пишем в Movies/Аджилити напрямую (нужно разрешение на память). */
     private fun saveToGalleryLegacy(file: File) {
         if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            pendingLegacySave = true
-            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 1)
+            askWritePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             return
         }
         try {
@@ -732,18 +731,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private var pendingLegacySave = false
-
-    @Deprecated("Deprecated in Java")
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1 && pendingLegacySave) {
-            pendingLegacySave = false
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                outputFile?.takeIf { it.exists() }?.let { saveToGalleryLegacy(it) }
-            }
+    private val askWritePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) outputFile?.takeIf { it.exists() }?.let { saveToGalleryLegacy(it) }
+            else Toast.makeText(this, "Без разрешения на память сохранить нельзя — используйте «Отправить»", Toast.LENGTH_LONG).show()
         }
-    }
 
     // ================================================================ данные о видео
 
