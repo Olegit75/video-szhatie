@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Аджилити-клуб
  * Description: Расписание тренировок в манеже, отметки участия и оплаты, расчёт стоимости, новости и видео. Вставьте шорткод [agility_club] на страницу.
- * Version: 1.7.1
+ * Version: 1.7.2
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Аджилити-клуб
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ACL_VERSION', '1.7.1' );
+define( 'ACL_VERSION', '1.7.2' );
 define( 'ACL_FILE', __FILE__ );
 define( 'ACL_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ACL_URL', plugin_dir_url( __FILE__ ) );

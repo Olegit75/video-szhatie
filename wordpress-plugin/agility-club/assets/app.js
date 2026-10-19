@@ -83,7 +83,7 @@
       '<div class="who-am-i">' + auth + "</div></div></header>" +
       '<main><div class="wrap" id="acl-view"></div></main>';
     qa("nav button").forEach(function (b) {
-      b.addEventListener("click", function () { tab = b.dataset.tab; if (tab === "video") openDate = null; if (tab === "schedule") openSession = null; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
+      b.addEventListener("click", function () { tab = b.dataset.tab; if (tab === "video") { openDate = null; openVideo = null; } if (tab === "schedule") openSession = null; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
     });
     var v = q("#acl-view");
     ({ schedule: viewSchedule, profile: viewProfile, mine: viewMine, sessions: viewSessions, debts: viewDebts, news: viewNews, video: viewVideo, notes: viewNotes, settings: viewSettings }[tab])(v);
@@ -405,9 +405,9 @@
   function setVideoDate(d) {
     openDate = d;
     try { history.replaceState(null, "", d ? "#video-" + d : "#video"); } catch (e) {}
-    var keep = !!pendingSeek;
+    openVideo = null;
     render();
-    if (!keep) window.scrollTo(0, 0);
+    window.scrollTo(0, 0);
   }
 
   var bigView = true;
@@ -520,11 +520,7 @@
     });
     qa("button[data-go]").forEach(function (b) {
       b.addEventListener("click", function () {
-        var x = (S.videos || []).filter(function (y) { return String(y.id) === b.dataset.go; })[0];
-        if (x && !passes(x)) vFilter = "all";
-        pendingSeek = { id: b.dataset.go, t: +b.dataset.gt };
-        tab = "video";
-        setVideoDate(b.dataset.gd);
+        showVideo(b.dataset.go, +b.dataset.gt, "notes");
       });
     });
     qa("button[data-dnote2]").forEach(function (b) {
@@ -727,7 +723,49 @@
 
   function markedCount(list) { return list.filter(function (x) { return x.marked; }).length; }
 
+  /* Страница одного видео (из заметок) */
+  var openVideo = null, backTo = null;
+  try { var hv = /^#v-(\d+)(?:-([\d.]+))?$/.exec(location.hash); if (hv) { openVideo = hv[1]; tab = "video"; if (hv[2]) pendingSeek = { id: hv[1], t: +hv[2] }; } } catch (e) {}
+  function showVideo(id, t, from) {
+    openVideo = String(id); backTo = from || null; tab = "video";
+    pendingSeek = t != null ? { id: String(id), t: t } : null;
+    try { history.replaceState(null, "", "#v-" + id + (t != null ? "-" + t : "")); } catch (e) {}
+    render(); window.scrollTo(0, 0);
+  }
+  function viewOneVideo(v, x) {
+    var a = S.role === "admin", logged = !!S.user;
+    var wasBig = bigView; bigView = true;
+    var item = videoItem(x, a, logged);
+    bigView = wasBig;
+    v.innerHTML = '<div class="row" style="gap:8px;align-items:center">' +
+      (backTo === "notes" ? '<button type="button" class="btn small ghost" data-back1="notes">← Заметки</button>' : "") +
+      '<button type="button" class="btn small ghost" data-back1="day">← Все видео ' + esc(fmtDate(x.date)) + "</button></div>" +
+      "<h1>" + esc(x.title) + "</h1>" +
+      '<section class="panel acl-vbig">' + item + "</section>";
+    qa("button[data-back1]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        openVideo = null; pendingSeek = null;
+        if (b.dataset.back1 === "notes") { tab = "notes"; try { history.replaceState(null, "", "#notes"); } catch (e) {} render(); window.scrollTo(0, 0); }
+        else setVideoDate(x.date);
+      });
+    });
+    bindVideoButtons(v);
+    if (pendingSeek && String(pendingSeek.id) === String(x.id)) {
+      var ps = pendingSeek; pendingSeek = null;
+      var pv = v.querySelector("video");
+      if (pv) {
+        var go = function () { pv.pause(); pv.currentTime = ps.t; };
+        if (pv.readyState >= 1) go(); else pv.addEventListener("loadedmetadata", go, { once: true });
+      }
+    }
+  }
+
   function viewVideo(v) {
+    if (openVideo) {
+      var one = (S.videos || []).filter(function (y) { return String(y.id) === String(openVideo); })[0];
+      if (one) { viewOneVideo(v, one); return; }
+      openVideo = null;
+    }
     var a = S.role === "admin";
     var logged = !!S.user;
     var all = S.videos || [];
@@ -806,19 +844,6 @@
       });
     });
     bindVideoButtons(v);
-    if (pendingSeek) {
-      var ps = pendingSeek; pendingSeek = null;
-      var it = root.querySelector('[data-vid="' + ps.id + '"]'), pv = it && it.querySelector("video");
-      if (it) {
-        it.scrollIntoView({ block: "center" });
-        it.style.outline = "3px solid var(--accent)"; it.style.borderRadius = "10px";
-        setTimeout(function () { it.style.outline = ""; }, 2500);
-      }
-      if (pv) {
-        var go = function () { pv.currentTime = ps.t; };
-        if (pv.readyState >= 1) go(); else pv.addEventListener("loadedmetadata", go, { once: true });
-      }
-    }
     qa("button[data-view]").forEach(function (b) {
       b.addEventListener("click", function () {
         bigView = b.dataset.view === "big";
@@ -920,7 +945,7 @@
     if (root.querySelector("details[open] [data-timer], details[open][data-notef]")) return;
     if (Array.prototype.some.call(root.querySelectorAll("form[data-runf] select"), function (sl) { return Array.prototype.some.call(sl.options, function (o) { return o.selected !== o.defaultSelected; }); })) return;
     // Не перерисовываем, пока смотрят видео — иначе ролик остановится
-    if (Array.prototype.some.call(root.querySelectorAll("video"), function (vd) { return !vd.paused && !vd.ended; })) return;
+    if (Array.prototype.some.call(root.querySelectorAll("video"), function (vd) { return (!vd.paused && !vd.ended) || vd.currentTime > 0; })) return;
     api("/state").then(function (st) { S = st; render(); }).catch(function () {});
   }
   document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
