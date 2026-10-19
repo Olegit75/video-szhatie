@@ -444,7 +444,7 @@
     var head = bigView
       ? '<h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>"
       : '<h3 style="font-size:14px">' + esc(time || x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>";
-    return '<div class="post acl-vitem" data-vid="' + x.id + '">' + head + media + runBlock(x) +
+    return '<div class="post acl-vitem" data-vid="' + x.id + '">' + head + media + runBlock(x) + '<div data-notes="' + x.id + '">' + notesInner(x) + "</div>" +
       '<div class="status" data-tagged="' + x.id + '">' + esc(itemTagged(x)) + "</div>" +
       '<div class="row" style="gap:8px" data-acts="' + x.id + '">' + itemActions(x, a, logged) + "</div></div>";
   }
@@ -474,6 +474,64 @@
       '<label for="rp-' + x.id + '">Штраф, баллы<input id="rp-' + x.id + '" data-k="pen" inputmode="numeric" placeholder="0" style="width:80px" value="' + (x.run_pen ? x.run_pen : "") + '"></label>' +
       '<label style="display:flex;gap:6px;align-items:center;color:var(--fg)"><input type="checkbox" data-k="dq"' + (x.run_dq ? " checked" : "") + "> Снят</label>" +
       '<button class="btn small">Сохранить</button></form></details>';
+  }
+
+  /* Заметки «На что обратить внимание» с моментом видео */
+  function notesInner(x) {
+    var list = (x.notes || []).map(function (n) {
+      return '<div class="acl-note" style="display:flex;flex-wrap:wrap;gap:4px 8px;align-items:flex-start;padding:6px 8px;border-left:3px solid var(--accent);background:var(--soft,rgba(0,0,0,.03));border-radius:6px;margin-top:4px">' +
+        '<button type="button" class="btn small ghost" data-seek="' + n.t + '" title="Перейти к этому моменту" style="white-space:nowrap;font-family:ui-monospace,monospace">⏱ ' + fmtMs(n.t) + " · кадр " + n.frame + "</button>" +
+        '<div style="flex:1 1 180px;min-width:0"><div style="white-space:pre-wrap">' + esc(n.text) + '</div><div class="status">' + esc(n.who) + "</div></div>" +
+        (n.can_delete ? '<button type="button" class="btn small ghost" data-dnote="' + n.id + '" title="Удалить заметку">✕</button>' : "") + "</div>";
+    }).join("");
+    var form = x.can_run && +x.local === 1
+      ? '<details data-notef="' + x.id + '" style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">📝 На что обратить внимание</summary>' +
+        '<form style="display:grid;gap:8px;margin-top:6px">' +
+        '<div class="row" style="gap:6px;align-items:center"><span data-nt style="font:600 16px/1 ui-monospace,monospace">0:00,000 · кадр 0</span>' +
+        '<button type="button" class="btn small ghost" data-nstep="-1">◀ кадр</button><button type="button" class="btn small ghost" data-nstep="1">кадр ▶</button>' +
+        '<button type="button" class="btn small ghost" data-nfix>Зафиксировать текущий момент</button></div>' +
+        '<label>Что заметили<textarea rows="2" maxlength="2000" placeholder="Например: поздняя команда на смену сторон, собака сбила планку"></textarea></label>' +
+        '<div class="row"><button class="btn small">Сохранить заметку</button></div></form></details>'
+      : "";
+    return list + form;
+  }
+  function bindNotes(box) {
+    var id = box.dataset.notes, item = box.closest(".acl-vitem"), vd = item && item.querySelector("video");
+    Array.prototype.forEach.call(box.querySelectorAll("[data-seek]"), function (b) {
+      b.addEventListener("click", function () {
+        if (!vd) return;
+        vd.pause(); vd.currentTime = +b.dataset.seek;
+        vd.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    });
+    Array.prototype.forEach.call(box.querySelectorAll("[data-dnote]"), function (b) {
+      b.addEventListener("click", function () {
+        if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Удалить?"; setTimeout(function () { if (b.isConnected) { delete b.dataset.armed; b.textContent = "✕"; } }, 3000); return; }
+        api("/video/note/" + b.dataset.dnote, "DELETE").then(function (st) { S = st; redrawNotes(id); toast("Заметка удалена."); }, function (e) { toast(e.message); });
+      });
+    });
+    var det = box.querySelector("[data-notef]");
+    if (!det || !vd) return;
+    var fm = det.querySelector("form"), lab = det.querySelector("[data-nt]"), t = 0;
+    function fix() { t = Math.round(vd.currentTime * 1000) / 1000; lab.textContent = fmtMs(t) + " · кадр " + Math.round(t * FPS); }
+    det.addEventListener("toggle", function () { if (det.open) { vd.pause(); fix(); } });
+    det.querySelector("[data-nfix]").addEventListener("click", function () { vd.pause(); fix(); });
+    Array.prototype.forEach.call(det.querySelectorAll("[data-nstep]"), function (b) {
+      b.addEventListener("click", function () { vd.pause(); vd.currentTime = Math.max(0, vd.currentTime + (+b.dataset.nstep) / FPS); });
+    });
+    vd.addEventListener("seeked", function () { if (det.open) fix(); });
+    fm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var txt = fm.querySelector("textarea").value.trim(), btn = fm.querySelector("button:not([type=button])");
+      if (!txt) { toast("Напишите, на что обратить внимание."); return; }
+      btn.disabled = true;
+      api("/video/" + id + "/note", "POST", { t: t, text: txt }).then(function (st) { S = st; redrawNotes(id); toast("Заметка сохранена: " + fmtMs(t)); }, function (err) { btn.disabled = false; toast(err.message); });
+    });
+  }
+  function redrawNotes(id) {
+    var x = (S.videos || []).filter(function (v) { return String(v.id) === String(id); })[0];
+    var box = root.querySelector('[data-notes="' + id + '"]');
+    if (x && box) { box.innerHTML = notesInner(x); bindNotes(box); }
   }
 
   /* Секундомер по кадрам: время стоп-кадра с миллисекундами, отметки «Старт»/«Финиш» */
@@ -552,6 +610,7 @@
       if (acts) { acts.innerHTML = itemActions(x, S.role === "admin", !!S.user); bindVideoButtons(acts); }
       var tg = root.querySelector('[data-tagged="' + id + '"]');
       if (tg) tg.textContent = itemTagged(x);
+      redrawNotes(id);
       var lb = filterLabels();
       Array.prototype.forEach.call(root.querySelectorAll("button[data-filter]"), function (b) { b.textContent = lb[b.dataset.filter]; });
       toast(okMsg ? okMsg(x) : (x.mine ? "Отмечено: это вы." : "Отметка снята."));
@@ -564,6 +623,7 @@
 
   function bindVideoButtons(scope) {
     Array.prototype.forEach.call(scope.querySelectorAll("[data-timer]"), bindTimer);
+    Array.prototype.forEach.call(scope.querySelectorAll("[data-notes]"), bindNotes);
     Array.prototype.forEach.call(scope.querySelectorAll("form[data-runf]"), function (fm) {
       fm.addEventListener("submit", function (e) {
         e.preventDefault();
@@ -785,7 +845,7 @@
     if ((img && img.files && img.files.length) || (ttl && ttl.value)) return;
     if (Array.prototype.some.call(root.querySelectorAll("textarea"), function (t) { return t.value !== t.defaultValue; })) return;
     if (Array.prototype.some.call(root.querySelectorAll("form[data-runf] input, form[data-cedit] input, #cf-len"), function (t) { return t.type === "checkbox" ? t.checked !== t.defaultChecked : t.value !== t.defaultValue; })) return;
-    if (Array.prototype.some.call(root.querySelectorAll("details[open] [data-timer]"), function () { return true; })) return;
+    if (root.querySelector("details[open] [data-timer], details[open][data-notef]")) return;
     if (Array.prototype.some.call(root.querySelectorAll("form[data-runf] select"), function (sl) { return Array.prototype.some.call(sl.options, function (o) { return o.selected !== o.defaultSelected; }); })) return;
     // Не перерисовываем, пока смотрят видео — иначе ролик остановится
     if (Array.prototype.some.call(root.querySelectorAll("video"), function (vd) { return !vd.paused && !vd.ended; })) return;

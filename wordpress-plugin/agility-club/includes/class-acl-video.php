@@ -38,6 +38,16 @@ class ACL_Video {
 			'callback'            => array( __CLASS__, 'toggle_me' ),
 			'permission_callback' => 'is_user_logged_in',
 		) );
+		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/note', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'note_add' ),
+			'permission_callback' => 'is_user_logged_in',
+		) );
+		register_rest_route( ACL_API::NS, '/video/note/(?P<nid>\d+)', array(
+			'methods'             => 'DELETE',
+			'callback'            => array( __CLASS__, 'note_delete' ),
+			'permission_callback' => 'is_user_logged_in',
+		) );
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/fav', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'toggle_fav' ),
@@ -252,6 +262,7 @@ class ACL_Video {
 		}
 		$wpdb->delete( ACL_DB::t( 'videos' ), array( 'id' => (int) $id ) );
 		$wpdb->delete( ACL_DB::t( 'video_tags' ), array( 'video_id' => (int) $id ) );
+		$wpdb->delete( ACL_DB::t( 'video_notes' ), array( 'video_id' => (int) $id ) );
 	}
 
 	/** «Это я»: отметить себя на видео или снять отметку. */
@@ -269,6 +280,48 @@ class ACL_Video {
 		} else {
 			$wpdb->insert( $t, array( 'video_id' => $id, 'user_id' => $uid, 'created' => current_time( 'mysql' ) ) );
 		}
+		return ACL_API::state();
+	}
+
+	/** Заметка «На что обратить внимание» с моментом видео. Может отметившийся «Это я» или администратор. */
+	public static function note_add( WP_REST_Request $r ) {
+		global $wpdb;
+		$id  = (int) $r['id'];
+		$uid = get_current_user_id();
+		if ( ! $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM ' . ACL_DB::t( 'videos' ) . ' WHERE id = %d', $id ) ) ) { // phpcs:ignore
+			return self::err( 'Видео не найдено.', 404 );
+		}
+		if ( ! current_user_can( ACL_CAP ) && ! $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM ' . ACL_DB::t( 'video_tags' ) . ' WHERE video_id = %d AND user_id = %d', $id, $uid ) ) ) { // phpcs:ignore
+			return self::err( 'Сначала отметьте себя на видео кнопкой «Это я».', 403 );
+		}
+		$text = trim( sanitize_textarea_field( (string) $r['text'] ) );
+		if ( '' === $text ) {
+			return self::err( 'Напишите, на что обратить внимание.' );
+		}
+		$t = (float) $r['t'];
+		if ( $t < 0 || $t > 36000 ) {
+			return self::err( 'Неверное время.' );
+		}
+		$wpdb->insert( ACL_DB::t( 'video_notes' ), array(
+			'video_id' => $id,
+			'user_id'  => $uid,
+			't'        => round( $t, 3 ),
+			'text'     => mb_substr( $text, 0, 2000 ),
+			'created'  => current_time( 'mysql' ),
+		) );
+		return ACL_API::state();
+	}
+
+	public static function note_delete( WP_REST_Request $r ) {
+		global $wpdb;
+		$n = $wpdb->get_row( $wpdb->prepare( 'SELECT id, user_id FROM ' . ACL_DB::t( 'video_notes' ) . ' WHERE id = %d', (int) $r['nid'] ) ); // phpcs:ignore
+		if ( ! $n ) {
+			return self::err( 'Заметка не найдена.', 404 );
+		}
+		if ( ! current_user_can( ACL_CAP ) && (int) $n->user_id !== get_current_user_id() ) {
+			return self::err( 'Удалить может автор заметки или администратор.', 403 );
+		}
+		$wpdb->delete( ACL_DB::t( 'video_notes' ), array( 'id' => (int) $n->id ) );
 		return ACL_API::state();
 	}
 

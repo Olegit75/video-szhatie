@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ACL_DB {
 
-	const DB_VERSION = '7';
+	const DB_VERSION = '8';
 
 	public static function t( $name ) {
 		global $wpdb;
@@ -122,6 +122,18 @@ class ACL_DB {
 			comment text,
 			created datetime DEFAULT NULL,
 			PRIMARY KEY  (course_id,user_id)
+			) $c;"
+		);
+		dbDelta(
+			'CREATE TABLE ' . self::t( 'video_notes' ) . " (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			video_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			t decimal(8,3) NOT NULL DEFAULT 0,
+			text text NOT NULL,
+			created datetime DEFAULT NULL,
+			PRIMARY KEY  (id),
+			KEY video_id (video_id)
 			) $c;"
 		);
 		update_option( 'acl_db_version', self::DB_VERSION );
@@ -252,7 +264,38 @@ class ACL_DB {
 				}
 			}
 		}
+		// Заметки «На что обратить внимание» — только вошедшим
+		$notes = array();
+		if ( $names ) {
+			$nrows = $wpdb->get_results( 'SELECT id, video_id, user_id, t, text FROM ' . self::t( 'video_notes' ) . ' ORDER BY t ASC, id ASC', ARRAY_A ); // phpcs:ignore
+			foreach ( (array) $nrows as $n ) {
+				$nu = (int) $n['user_id'];
+				if ( ! isset( $label[ $nu ] ) ) {
+					$who = '';
+					foreach ( self::members( false ) as $m ) {
+						if ( (int) $m['user_id'] === $nu ) {
+							$who = $m['name'];
+						}
+					}
+					if ( '' === $who ) {
+						$ud  = get_userdata( $nu );
+						$who = $ud ? $ud->display_name : 'Участник';
+					}
+					$label[ $nu ] = $who;
+				}
+				$t                                   = (float) $n['t'];
+				$notes[ (int) $n['video_id'] ][] = array(
+					'id'         => (int) $n['id'],
+					't'          => $t,
+					'frame'      => (int) round( $t * 30 ),
+					'text'       => $n['text'],
+					'who'        => $label[ $nu ],
+					'can_delete' => current_user_can( ACL_CAP ) || ( $uid && (int) $uid === $nu ),
+				);
+			}
+		}
 		foreach ( $rows as &$r ) {
+			$r['notes']  = isset( $notes[ (int) $r['id'] ] ) ? $notes[ (int) $r['id'] ] : array();
 			$ids         = isset( $by[ (int) $r['id'] ] ) ? $by[ (int) $r['id'] ] : array();
 			$r['mine']   = $uid && in_array( (int) $uid, $ids, true );
 			// Пометить «Удалить» (или снять пометку) может отметивший себя «Это я» участник или администратор
