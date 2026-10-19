@@ -65,8 +65,14 @@ class ACL_Video {
 	}
 
 	/** Что видел сервер при последней попытке входа приложения (без пароля) — для диагностики. */
+	private static $auth_log = null;
+
+	/**
+	 * Только запоминает данные. Писать в базу здесь нельзя: запись может снова вызвать
+	 * определение пользователя и зациклить запрос. Сохраняем в конце запроса (shutdown).
+	 */
 	public static function log_auth( $user ) {
-		if ( ! self::is_club_api_request() ) {
+		if ( null !== self::$auth_log || ! self::is_club_api_request() ) {
 			return $user;
 		}
 		$seen = ! empty( $_SERVER['HTTP_AUTHORIZATION'] ) || ! empty( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ) ? 'authorization' : '';
@@ -77,17 +83,23 @@ class ACL_Video {
 			return $user;
 		}
 		global $wp_rest_application_password_status;
-		$status = $wp_rest_application_password_status;
-		update_option( 'acl_last_auth', array(
-			'time'      => current_time( 'mysql' ),
-			'seen'      => $seen,
-			'login'     => isset( $_SERVER['PHP_AUTH_USER'] ) ? sanitize_user( wp_unslash( $_SERVER['PHP_AUTH_USER'] ) ) : '', // phpcs:ignore
-			'user'      => $user ? (int) ( is_object( $user ) ? $user->ID : $user ) : 0,
-			'status'    => is_wp_error( $status ) ? $status->get_error_code() : ( true === $status ? 'ok' : (string) $status ),
-			'available' => wp_is_application_passwords_available(),
-			'pw_len'    => isset( $_SERVER['PHP_AUTH_PW'] ) ? strlen( preg_replace( '/[^a-z\d]/i', '', (string) $_SERVER['PHP_AUTH_PW'] ) ) : 0, // phpcs:ignore
-		), false );
+		$status         = $wp_rest_application_password_status;
+		self::$auth_log = array(
+			'time'   => gmdate( 'Y-m-d H:i:s' ),
+			'seen'   => $seen,
+			'login'  => isset( $_SERVER['PHP_AUTH_USER'] ) ? substr( preg_replace( '/[^A-Za-z0-9_.@-]/', '', (string) $_SERVER['PHP_AUTH_USER'] ), 0, 60 ) : '', // phpcs:ignore
+			'user'   => is_object( $user ) ? (int) $user->ID : (int) $user,
+			'status' => is_wp_error( $status ) ? $status->get_error_code() : ( true === $status ? 'ok' : '' ),
+			'pw_len' => isset( $_SERVER['PHP_AUTH_PW'] ) ? strlen( preg_replace( '/[^a-z\d]/i', '', (string) $_SERVER['PHP_AUTH_PW'] ) ) : 0, // phpcs:ignore
+		);
+		add_action( 'shutdown', array( __CLASS__, 'save_auth_log' ) );
 		return $user;
+	}
+
+	public static function save_auth_log() {
+		if ( is_array( self::$auth_log ) ) {
+			update_option( 'acl_last_auth', self::$auth_log, false );
+		}
 	}
 
 	public static function me() {
