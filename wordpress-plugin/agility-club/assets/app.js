@@ -555,7 +555,7 @@
     Array.prototype.forEach.call(box.querySelectorAll("[data-seek]"), function (b) {
       b.addEventListener("click", function () {
         if (!vd) return;
-        vd.pause(); vd.currentTime = +b.dataset.seek;
+        frameMode(vd, true); vd.currentTime = +b.dataset.seek;
         vd.scrollIntoView({ behavior: "smooth", block: "center" });
       });
     });
@@ -572,7 +572,7 @@
     det.addEventListener("toggle", function () { if (det.open) { vd.pause(); fix(); } });
     det.querySelector("[data-nfix]").addEventListener("click", function () { vd.pause(); fix(); });
     Array.prototype.forEach.call(det.querySelectorAll("[data-nstep]"), function (b) {
-      b.addEventListener("click", function () { vd.pause(); vd.currentTime = Math.max(0, vd.currentTime + (+b.dataset.nstep) / FPS); });
+      b.addEventListener("click", function () { frameMode(vd, true); vd.currentTime = Math.max(0, vd.currentTime + (+b.dataset.nstep) / FPS); });
     });
     vd.addEventListener("seeked", function () { if (det.open) fix(); });
     fm.addEventListener("submit", function (e) {
@@ -611,6 +611,51 @@
       '<button type="button" class="btn small" data-mk="f">Финиш</button><span class="status" data-mf>' + fmtMs(mk.f) + "</span></div>" +
       '<div class="status" data-res>' + (mk.s != null && mk.f != null ? "Время забега: <b>" + (mk.f - mk.s).toFixed(2).replace(".", ",") + " с</b>" : "Поставьте видео на паузу в момент старта и нажмите «Старт», затем то же на финише. Кнопки «кадр» двигают видео на 1/30 секунды.") + "</div></div>";
   }
+  /* Покадровый режим: убираем стандартные кнопки плеера (белый кружок на телефоне), показываем свою панель */
+  function frameMode(vd, on) {
+    if (!vd) return;
+    var bar = vd.nextElementSibling && vd.nextElementSibling.hasAttribute("data-fbar") ? vd.nextElementSibling : null;
+    if (!on) {
+      vd.setAttribute("controls", "");
+      if (bar) bar.remove();
+      return;
+    }
+    vd.pause();
+    if (bar) return;
+    vd.removeAttribute("controls");
+    bar = document.createElement("div");
+    bar.setAttribute("data-fbar", "");
+    bar.className = "row";
+    bar.style.cssText = "gap:6px;margin:6px 0;align-items:center;flex-wrap:wrap";
+    bar.innerHTML =
+      '<button type="button" class="btn small" data-fb="play" style="min-width:44px">▶</button>' +
+      '<button type="button" class="btn small ghost" data-fb="-1">−1 с</button>' +
+      '<button type="button" class="btn small ghost" data-fb="-f">◀ кадр</button>' +
+      '<button type="button" class="btn small ghost" data-fb="+f">кадр ▶</button>' +
+      '<button type="button" class="btn small ghost" data-fb="+1">+1 с</button>' +
+      '<button type="button" class="btn small ghost" data-fb="off">Обычный плеер</button>' +
+      '<span data-ft style="font:600 14px/1 ui-monospace,monospace;margin-left:auto"></span>';
+    vd.insertAdjacentElement("afterend", bar);
+    var pb = bar.querySelector('[data-fb="play"]');
+    var ft = bar.querySelector("[data-ft]");
+    function sync() { pb.textContent = vd.paused ? "▶" : "⏸"; ft.textContent = fmtMs(vd.currentTime) + " · кадр " + Math.round(vd.currentTime * FPS); }
+    ["play", "pause", "seeked", "timeupdate"].forEach(function (ev) { vd.addEventListener(ev, function () { if (bar.isConnected) sync(); }); });
+    sync();
+    function step(d) { vd.pause(); vd.currentTime = Math.max(0, Math.min(vd.duration || 1e9, vd.currentTime + d)); }
+    bar.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-fb]"); if (!b) return;
+      var k = b.dataset.fb;
+      if (k === "play") { if (vd.paused) vd.play(); else vd.pause(); }
+      else if (k === "off") frameMode(vd, false);
+      else if (k === "-1") step(-1); else if (k === "+1") step(1);
+      else if (k === "-f") step(-1 / FPS); else if (k === "+f") step(1 / FPS);
+    });
+    if (!vd.dataset.tapbound) {
+      vd.dataset.tapbound = "1";
+      vd.addEventListener("click", function () { if (!vd.hasAttribute("controls")) { if (vd.paused) vd.play(); else vd.pause(); } });
+    }
+  }
+
   function bindTimer(box) {
     var id = box.dataset.timer, item = box.closest(".acl-vitem"), vd = item && item.querySelector("video");
     if (!vd) return;
@@ -624,7 +669,7 @@
     show();
     Array.prototype.forEach.call(box.querySelectorAll("[data-step]"), function (b) {
       b.addEventListener("click", function () {
-        vd.pause();
+        frameMode(vd, true);
         vd.currentTime = Math.max(0, Math.min(vd.duration || 1e9, vd.currentTime + (+b.dataset.step) / FPS));
       });
     });
@@ -754,7 +799,7 @@
       var ps = pendingSeek; pendingSeek = null;
       var pv = v.querySelector("video");
       if (pv) {
-        var go = function () { pv.pause(); pv.currentTime = ps.t; };
+        var go = function () { frameMode(pv, true); pv.currentTime = ps.t; };
         if (pv.readyState >= 1) go(); else pv.addEventListener("loadedmetadata", go, { once: true });
       }
     }

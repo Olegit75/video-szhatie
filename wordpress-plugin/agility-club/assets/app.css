@@ -93,3 +93,6 @@ body.acl-body{margin:0;background:#f3f5f8}
 .acl .acl-vsmall .btn.small{padding:4px 8px}
 @media (max-width:520px){.acl .acl-vsmall{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
 @media (prefers-reduced-motion:reduce){.acl *{transition:none!important}}
+
+/* покадровый режим: на всякий случай прячем большой кружок «пуск» у встроенного плеера */
+.acl video:not([controls])::-webkit-media-controls-overlay-play-button,.acl video:not([controls])::-webkit-media-controls{display:none!important}
