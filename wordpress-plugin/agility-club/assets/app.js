@@ -70,7 +70,7 @@
       '<div class="who-am-i">' + auth + "</div></div></header>" +
       '<main><div class="wrap" id="acl-view"></div></main>';
     qa("nav button").forEach(function (b) {
-      b.addEventListener("click", function () { tab = b.dataset.tab; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
+      b.addEventListener("click", function () { tab = b.dataset.tab; if (tab === "video") openDate = null; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
     });
     var v = q("#acl-view");
     ({ schedule: viewSchedule, profile: viewProfile, mine: viewMine, sessions: viewSessions, debts: viewDebts, news: viewNews, video: viewVideo, settings: viewSettings }[tab])(v);
@@ -238,6 +238,28 @@
   var onlyMine = false;
   try { onlyMine = localStorage.getItem("acl-only-mine") === "1"; } catch (e) {}
 
+  var openDate = null; // выбранный день на вкладке «Видео»
+  try { var hm = /^#video-(\d{4}-\d{2}-\d{2})$/.exec(location.hash); if (hm) { openDate = hm[1]; tab = "video"; } } catch (e) {}
+
+  function setVideoDate(d) {
+    openDate = d;
+    try { history.replaceState(null, "", d ? "#video-" + d : "#video"); } catch (e) {}
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  function videoItem(x, a, logged) {
+    var local = +x.local === 1;
+    var media = local
+      ? '<video controls preload="metadata" playsinline src="' + esc(x.url) + '" style="width:100%;max-height:70vh;border-radius:8px;background:#000"></video>'
+      : '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Открыть видео</a>';
+    var tagged = (x.tagged || []).length ? '<div class="status">На видео: ' + esc(x.tagged.join(", ")) + "</div>" : "";
+    var actions = (logged ? '<button type="button" class="btn small ' + (x.mine ? "" : "ghost") + '" data-me="' + x.id + '" aria-pressed="' + (x.mine ? "true" : "false") + '">' + (x.mine ? "✓ Это я" : "Это я") + "</button>" : "") +
+      (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>' : "");
+    return '<div class="post"><h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>" + media + tagged +
+      (actions ? '<div class="row" style="gap:8px">' + actions + "</div>" : "") + "</div>";
+  }
+
   function viewVideo(v) {
     var a = S.role === "admin";
     var logged = !!S.user;
@@ -247,40 +269,56 @@
     var byDate = {};
     shown.forEach(function (x) { (byDate[x.date] = byDate[x.date] || []).push(x); });
     var dates = Object.keys(byDate).sort().reverse();
-    var groups = dates.map(function (d) {
-      var list = byDate[d], total = 0;
-      list.forEach(function (x) { total += +x.size || 0; });
-      var items = list.map(function (x) {
-        var local = +x.local === 1;
-        var media = local
-          ? '<video controls preload="metadata" playsinline src="' + esc(x.url) + '" style="width:100%;max-height:70vh;border-radius:8px;background:#000"></video>'
-          : '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Открыть видео</a>';
-        var tagged = (x.tagged || []).length ? '<div class="status">На видео: ' + esc(x.tagged.join(", ")) + "</div>" : "";
-        var actions = (logged ? '<button type="button" class="btn small ' + (x.mine ? "" : "ghost") + '" data-me="' + x.id + '" aria-pressed="' + (x.mine ? "true" : "false") + '">' + (x.mine ? "✓ Это я" : "Это я") + "</button>" : "") +
-          (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>' : "");
-        return '<div class="post"><h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>" + media + tagged +
-          (actions ? '<div class="row" style="gap:8px">' + actions + "</div>" : "") + "</div>";
-      }).join("");
-      return '<section class="panel"><div class="row" style="justify-content:space-between;align-items:center"><h2>' + esc(fmtDate(d)) +
-        ' <span class="status">' + list.length + " видео" + (total ? " · " + mb(total) : "") + "</span></h2>" +
-        (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + d + '">Удалить весь день</button>' : "") + "</div>" + items + "</section>";
-    }).join("");
+    if (openDate && !byDate[openDate]) openDate = null;
+
     var filter = logged
       ? '<div class="row" style="gap:8px" role="group" aria-label="Какие видео показать">' +
         '<button type="button" class="btn small ' + (onlyMine ? "ghost" : "") + '" data-filter="all">Все видео (' + all.length + ")</button>" +
         '<button type="button" class="btn small ' + (onlyMine ? "" : "ghost") + '" data-filter="mine">Только мои (' + mineCount + ")</button></div>"
       : "";
-    var empty = logged && onlyMine
-      ? '<div class="panel empty">Вы ещё не отметили себя ни на одном видео. Нажмите «Это я» под роликом, где вы с собакой.</div>'
-      : '<div class="panel empty">Видео пока нет.</div>';
-    v.innerHTML = '<div><h1>Видео тренировок</h1><p class="lead">' +
-      (a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную."
-         : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои»."
-         : "Записи тренировок по дням. Войдите, чтобы отмечать свои видео.") + "</p></div>" + filter +
-      (a ? '<details class="panel"><summary style="cursor:pointer">Добавить ссылку вручную</summary><form class="row" id="acl-vf" style="margin-top:12px"><label for="acl-vd">Дата<input type="date" id="acl-vd" value="' + S.today + '"></label><label for="acl-vt" style="flex:1;min-width:180px">Название<input id="acl-vt" required placeholder="Слалом, Дейзи"></label><label for="acl-vu" style="flex:2;min-width:220px">Ссылка<input id="acl-vu" type="url" required placeholder="https://vkvideo.ru/..."></label><button class="btn">Добавить</button></form></details>' : "") +
-      (groups || empty);
+    var lead = a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную."
+      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои»."
+      : "Записи тренировок по дням. Войдите, чтобы отмечать свои видео.";
+    var html;
+
+    if (openDate) {
+      // ---- один день
+      var list = byDate[openDate], total = 0;
+      list.forEach(function (x) { total += +x.size || 0; });
+      html = '<div class="row" style="gap:8px;align-items:center"><button type="button" class="btn small ghost" data-back="1">← Все дни</button></div>' +
+        '<div class="row" style="justify-content:space-between;align-items:center"><h1>' + esc(fmtDate(openDate)) + '</h1>' +
+        (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + openDate + '">Удалить весь день</button>' : "") + "</div>" +
+        '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? " · только мои" : "") + "</p>" + filter +
+        '<section class="panel">' + list.map(function (x) { return videoItem(x, a, logged); }).join("") + "</section>";
+    } else {
+      // ---- список дней
+      var months = {};
+      dates.forEach(function (d) { (months[d.slice(0, 7)] = months[d.slice(0, 7)] || []).push(d); });
+      var cards = Object.keys(months).sort().reverse().map(function (m) {
+        var p = m.split("-");
+        var title = new Date(+p[0], +p[1] - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+        return "<h2 style=\"text-transform:capitalize\">" + esc(title) + '</h2><div class="cards">' + months[m].map(function (d) {
+          var list = byDate[d], total = 0, mine = 0;
+          list.forEach(function (x) { total += +x.size || 0; if (x.mine) mine++; });
+          return '<button type="button" class="slot" data-day="' + d + '" style="text-align:left;cursor:pointer;font:inherit;color:inherit">' +
+            '<span class="d">' + esc(fmtDate(d)) + "</span>" +
+            '<span class="t">' + list.length + " видео" + (total ? " · " + mb(total) : "") + "</span>" +
+            (logged && mine ? '<span class="pill ok" style="justify-self:start">мои: ' + mine + "</span>" : "") + "</button>";
+        }).join("") + "</div>";
+      }).join("");
+      var empty = logged && onlyMine
+        ? '<div class="panel empty">Вы ещё не отметили себя ни на одном видео. Откройте день и нажмите «Это я» под роликом, где вы с собакой.</div>'
+        : '<div class="panel empty">Видео пока нет.</div>';
+      html = '<div><h1>Видео тренировок</h1><p class="lead">' + lead + "</p></div>" + filter +
+        (a ? '<details class="panel"><summary style="cursor:pointer">Добавить ссылку вручную</summary><form class="row" id="acl-vf" style="margin-top:12px"><label for="acl-vd">Дата<input type="date" id="acl-vd" value="' + S.today + '"></label><label for="acl-vt" style="flex:1;min-width:180px">Название<input id="acl-vt" required placeholder="Слалом, Дейзи"></label><label for="acl-vu" style="flex:2;min-width:220px">Ссылка<input id="acl-vu" type="url" required placeholder="https://vkvideo.ru/..."></label><button class="btn">Добавить</button></form></details>' : "") +
+        (cards || empty);
+    }
+    v.innerHTML = html;
+
     var f = q("#acl-vf");
     if (f) f.addEventListener("submit", function (e) { e.preventDefault(); act("/videos", "POST", { date: q("#acl-vd").value, title: q("#acl-vt").value, url: q("#acl-vu").value }).catch(function () {}); });
+    qa("button[data-day]").forEach(function (b) { b.addEventListener("click", function () { setVideoDate(b.dataset.day); }); });
+    qa("button[data-back]").forEach(function (b) { b.addEventListener("click", function () { setVideoDate(null); }); });
     qa("button[data-filter]").forEach(function (b) {
       b.addEventListener("click", function () {
         onlyMine = b.dataset.filter === "mine";
@@ -299,7 +337,7 @@
     armDelete("dv", function (id) { return act("/videos/" + id, "DELETE"); });
     qa("button[data-dday]").forEach(function (b) {
       b.addEventListener("click", function () {
-        if (b.dataset.armed) { act("/video/delete-date", "POST", { date: b.dataset.dday }).then(function () { toast("Видео за день удалены."); }, function () {}); return; }
+        if (b.dataset.armed) { act("/video/delete-date", "POST", { date: b.dataset.dday }).then(function () { setVideoDate(null); toast("Видео за день удалены."); }, function () {}); return; }
         b.dataset.armed = "1"; b.textContent = "Точно удалить все видео дня?";
         setTimeout(function () { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Удалить весь день"; } }, 4000);
       });
