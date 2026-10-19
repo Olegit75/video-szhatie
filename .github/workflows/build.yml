@@ -26,6 +26,7 @@ jobs:
 
       - name: Собрать APK
         run: |
+          set -o pipefail
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
 
