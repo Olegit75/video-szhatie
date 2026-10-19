@@ -149,7 +149,7 @@
     var top = 0;
     cs.forEach(function (c) { top = Math.max(top, c.votes.length); });
     var past = ses.date < S.today;
-    var items = cs.slice().sort(function (a, b) { return b.votes.length - a.votes.length || a.id - b.id; }).map(function (c) {
+    var items = cs.slice().sort(function (a, b) { return (past ? (b.ran - a.ran) : 0) || b.votes.length - a.votes.length || a.id - b.id; }).map(function (c) {
       var leader = top > 0 && c.votes.length === top;
       var votes = c.votes.length
         ? '<ul style="margin:6px 0 0;padding-left:18px">' + c.votes.map(function (vt) { return "<li><b>" + esc(vt.name) + ":</b> " + esc(vt.comment) + "</li>"; }).join("") + "</ul>"
@@ -162,27 +162,42 @@
           '<button class="btn small">' + (c.voted ? "Сохранить" : "Голосовать") + "</button>" +
           (c.voted ? '<button type="button" class="btn small ghost" data-unvote="' + c.id + '">Отозвать голос</button>' : "") + "</form>";
       }
+      var meta = '<div class="row" style="gap:8px;align-items:center">' +
+        (c.length ? '<span class="pill ok">' + fmtLen(c.length) + "</span>" : '<span class="pill warn">длина не указана</span>') +
+        (c.ran ? '<span class="pill ok">✓ Бегали</span>' : "") + "</div>";
+      var editBox = c.can_edit
+        ? '<form class="row" data-cedit="' + c.id + '" style="gap:8px;align-items:end">' +
+          '<label for="cl-' + c.id + '">Длина, м<input id="cl-' + c.id + '" inputmode="decimal" value="' + (c.length == null ? "" : String(c.length).replace(".", ",")) + '" style="width:90px"></label>' +
+          '<label style="display:flex;gap:6px;align-items:center;color:var(--fg)"><input type="checkbox" id="cr-' + c.id + '"' + (c.ran ? " checked" : "") + "> Бегали эту трассу</label>" +
+          '<button class="btn small">Сохранить</button></form>'
+        : "";
+      var res = (c.results || []).length
+        ? '<div class="scroll"><table><thead><tr><th class="l">Результаты</th><th>Штраф</th><th>Время</th><th>Скорость</th></tr></thead><tbody>' +
+          c.results.map(function (r, k) { return '<tr><td class="l">' + (r.dq ? "" : k === 0 ? "🥇 " : k === 1 ? "🥈 " : k === 2 ? "🥉 " : "") + esc(r.who) + '</td><td class="num">' + (r.dq ? "снят" : r.pen) + '</td><td class="num">' + (r.time == null ? "—" : fmtTime(r.time)) + '</td><td class="num">' + (r.dq ? "—" : (fmtSpeed(r.speed) || "—")) + "</td></tr>"; }).join("") +
+          "</tbody></table></div>"
+        : (c.ran ? '<div class="status">Результатов пока нет — укажите трассу, время и штраф под своим видео во вкладке «Видео». Места: сначала меньше штрафа, потом быстрее.</div>' : "");
       return '<article class="panel" style="display:grid;gap:10px">' +
-        '<div class="row" style="justify-content:space-between;align-items:center"><h2>' + (leader ? "🏆 " : "") + esc(c.title) +
+        '<div class="row" style="justify-content:space-between;align-items:center"><h2>' + (leader && !past ? "🏆 " : "") + esc(c.title) +
         ' <span class="pill ' + (c.votes.length ? "ok" : "warn") + '">' + c.votes.length + " " + plural(c.votes.length, "голос", "голоса", "голосов") + "</span></h2>" +
         (c.can_delete ? '<button type="button" class="btn small danger" data-dcourse="' + c.id + '">Удалить</button>' : "") + "</div>" +
         '<div class="status">Предложил(а): ' + esc(c.author) + (c.mine ? " (вы)" : "") + "</div>" +
         (c.image ? '<a href="' + esc(c.image) + '" target="_blank" rel="noopener"><img src="' + esc(c.image) + '" alt="Схема трассы «' + esc(c.title) + '»" style="width:100%;max-height:70vh;object-fit:contain;border-radius:8px;background:var(--bg);border:1px solid var(--line)"></a>' : "") +
         (c.note ? '<p style="margin:0;white-space:pre-wrap">' + esc(c.note) + "</p>" : "") +
-        votes + voteBox + "</article>";
+        meta + editBox + res + votes + voteBox + "</article>";
     }).join("");
-    var form = past ? "" :
-      '<details class="panel"' + (cs.length ? "" : " open") + '><summary style="cursor:pointer;font-weight:600">+ Предложить трассу</summary>' +
+    var form =
+      '<details class="panel"' + (cs.length ? "" : " open") + '><summary style="cursor:pointer;font-weight:600">' + (past ? "+ Добавить трассу, которую бегали" : "+ Предложить трассу") + "</summary>" +
       '<form id="acl-cf" style="display:grid;gap:10px;margin-top:12px">' +
       '<label for="cf-title">Название<input id="cf-title" required maxlength="200" placeholder="Например: Джампинг на смены сторон"></label>' +
-      '<label for="cf-img">Схема трассы (фото или скриншот: JPG, PNG, WebP)<input id="cf-img" type="file" accept="image/*" required></label>' +
+      '<label for="cf-len">Длина трассы, м<input id="cf-len" inputmode="decimal" placeholder="Например: 160" style="max-width:160px"></label>' +
+      '<label for="cf-img">Схема трассы (фото или скриншот: JPG, PNG, WebP)' + (past ? " — необязательно" : "") + '<input id="cf-img" type="file" accept="image/*"' + (past ? "" : " required") + "></label>" +
       '<img id="cf-prev" alt="" hidden style="max-width:100%;max-height:300px;object-fit:contain;border-radius:8px">' +
       '<label for="cf-note">Комментарий (необязательно)<textarea id="cf-note" rows="3" style="min-height:0" placeholder="Что отрабатываем, на что обратить внимание"></textarea></label>' +
       '<div class="row"><button class="btn" id="cf-send">Предложить</button><span class="status" id="cf-status"></span></div></form></details>';
     v.innerHTML = '<div class="row"><button type="button" class="btn small ghost" data-back="1">← Расписание</button></div>' +
       "<div><h1>Трассы · " + esc(fmtDate(ses.date)) + "</h1>" +
       '<p class="lead">' + esc(ses.start || "") + " · " + esc(ses.hours) + " ч. " +
-      (past ? "Тренировка прошла — голосование закрыто." : "Предложите свою схему или проголосуйте за чужую с комментарием. За свою трассу голосовать нельзя.") + "</p></div>" +
+      (past ? "Тренировка прошла: отметьте «Бегали» у схем, которые бегали, укажите длину — и под видео можно будет ввести время и получить скорость." : "Предложите свою схему или проголосуйте за чужую с комментарием. За свою трассу голосовать нельзя.") + "</p></div>" +
       form + (items || '<div class="panel empty">Трасс пока не предложили.</div>');
 
     q("[data-back]").addEventListener("click", function () { setSession(null); });
@@ -195,16 +210,17 @@
       f.addEventListener("submit", function (e) {
         e.preventDefault();
         var file = q("#cf-img").files[0];
-        if (!file) { toast("Прикрепите картинку схемы."); return; }
-        if (file.size > 15 * 1048576) { toast("Картинка больше 15 МБ — сожмите или сделайте скриншот."); return; }
+        if (!file && !past) { toast("Прикрепите картинку схемы."); return; }
+        if (file && file.size > 15 * 1048576) { toast("Картинка больше 15 МБ — сожмите или сделайте скриншот."); return; }
         var fd = new FormData();
         fd.append("session_id", ses.id);
         fd.append("title", q("#cf-title").value.trim());
         fd.append("note", q("#cf-note").value.trim());
-        fd.append("image", file, file.name || "trassa.jpg");
+        fd.append("length", q("#cf-len").value.trim());
+        if (file) fd.append("image", file, file.name || "trassa.jpg");
         q("#cf-send").disabled = true;
         q("#cf-status").textContent = "Загружаю…";
-        apiForm("/courses", fd).then(function (st) { S = st; render(); toast("Трасса предложена."); }, function (err) {
+        apiForm("/courses", fd).then(function (st) { S = st; render(); toast(past ? "Трасса добавлена." : "Трасса предложена."); }, function (err) {
           q("#cf-send").disabled = false;
           q("#cf-status").textContent = "";
           toast(err.message);
@@ -221,7 +237,22 @@
     });
     qa("button[data-unvote]").forEach(function (b) { b.addEventListener("click", function () { act("/courses/" + b.dataset.unvote + "/vote", "DELETE").then(function () { toast("Голос отозван."); }, function () {}); }); });
     armDelete("dcourse", function (id) { return act("/courses/" + id, "DELETE"); });
+    qa("form[data-cedit]").forEach(function (fm) {
+      fm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var id = fm.dataset.cedit;
+        act("/courses/" + id + "/edit", "POST", { length: q("#cl-" + id).value, ran: q("#cr-" + id).checked }).then(function () { toast("Сохранено."); }, function () {});
+      });
+    });
   }
+
+  function fmtTime(t) {
+    if (t == null) return "";
+    if (t >= 60) { var m = Math.floor(t / 60), sec = t - m * 60; return m + ":" + (sec < 10 ? "0" : "") + sec.toFixed(2).replace(".", ","); }
+    return t.toFixed(2).replace(".", ",") + " с";
+  }
+  function fmtSpeed(v) { return v == null ? "" : v.toFixed(2).replace(".", ",") + " м/с"; }
+  function fmtLen(l) { return l == null ? "" : String(l).replace(".", ",") + " м"; }
 
   function plural(n, one, few, many) {
     var m10 = n % 10, m100 = n % 100;
@@ -356,8 +387,17 @@
 
   /* ---------- Видео ---------- */
   function mb(b) { return b ? (b / 1048576).toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " МБ" : ""; }
-  var onlyMine = false;
-  try { onlyMine = localStorage.getItem("acl-only-mine") === "1"; } catch (e) {}
+  var vFilter = "all"; // all | mine | fav
+  try { vFilter = localStorage.getItem("acl-vfilter") || (localStorage.getItem("acl-only-mine") === "1" ? "mine" : "all"); } catch (e) {}
+  function passes(x) { return vFilter === "mine" ? x.mine : vFilter === "fav" ? x.fav : true; }
+  function filterLabels() {
+    var all = S.videos || [];
+    return {
+      all: "Все видео (" + all.length + ")",
+      mine: "Только мои (" + all.filter(function (x) { return x.mine; }).length + ")",
+      fav: "⭐ Избранное (" + all.filter(function (x) { return x.fav; }).length + ")"
+    };
+  }
 
   var openDate = null; // выбранный день на вкладке «Видео»
   try { var hm = /^#video-(\d{4}-\d{2}-\d{2})$/.exec(location.hash); if (hm) { openDate = hm[1]; tab = "video"; } } catch (e) {}
@@ -382,7 +422,10 @@
           ? '<button type="button" class="btn small" data-mark="' + x.id + '">Отменить удаление</button>'
           : '<button type="button" class="btn small danger" data-mark="' + x.id + '">Удалить</button>')
       : "";
-    return (logged ? meButton(x) : "") + mark +
+    var fav = logged && x.mine
+      ? '<button type="button" class="btn small ' + (x.fav ? "" : "ghost") + '" data-fav="' + x.id + '" aria-pressed="' + (x.fav ? "true" : "false") + '" title="Избранное">' + (x.fav ? "⭐ В избранном" : "☆ В избранное") + "</button>"
+      : "";
+    return (logged ? meButton(x) : "") + fav + mark +
       (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить сейчас</button>' : "");
   }
   function itemTagged(x) {
@@ -401,9 +444,36 @@
     var head = bigView
       ? '<h3>' + esc(x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>"
       : '<h3 style="font-size:14px">' + esc(time || x.title) + (x.size ? ' <span class="status">' + mb(+x.size) + "</span>" : "") + "</h3>";
-    return '<div class="post acl-vitem" data-vid="' + x.id + '">' + head + media +
+    return '<div class="post acl-vitem" data-vid="' + x.id + '">' + head + media + runBlock(x) +
       '<div class="status" data-tagged="' + x.id + '">' + esc(itemTagged(x)) + "</div>" +
       '<div class="row" style="gap:8px" data-acts="' + x.id + '">' + itemActions(x, a, logged) + "</div></div>";
+  }
+
+  function courseById(id) { return (S.course_titles || []).filter(function (c) { return c.id === id; })[0]; }
+  function runInfo(x) {
+    var c = x.course_id ? courseById(x.course_id) : null;
+    if (!c) return "";
+    var sp = c.length && x.run_time ? c.length / x.run_time : null;
+    return "🏁 " + esc(c.title) + (c.length ? " · " + fmtLen(c.length) : "") +
+      (x.run_dq ? " · <b>снят</b>" : x.run_time || x.run_pen ? " · штраф <b>" + x.run_pen + "</b>" : "") +
+      (x.run_time ? " · <b>" + fmtTime(x.run_time) + "</b>" : "") + (sp && !x.run_dq ? " · <b>" + fmtSpeed(Math.round(sp * 100) / 100) + "</b>" : "");
+  }
+  function runBlock(x) {
+    var info = runInfo(x);
+    var html = '<div class="status" data-run="' + x.id + '"' + (info ? "" : " hidden") + ">" + info + "</div>";
+    if (!x.can_run) return html;
+    var opts = (S.course_titles || []).filter(function (c) { return c.date === x.date; })
+      .sort(function (a, b) { return b.ran - a.ran || a.id - b.id; });
+    if (!opts.length) return html + '<div class="status">Трасс этого дня нет — добавьте во вкладке «Расписание → Трассы».</div>';
+    return html + '<details style="margin-top:4px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">' + (x.course_id ? "Изменить трассу, время, штраф" : "Указать трассу, время, штраф") + "</summary>" +
+      '<form class="row" data-runf="' + x.id + '" style="gap:8px;align-items:end;margin-top:6px">' +
+      '<label for="rc-' + x.id + '" style="flex:1;min-width:140px">Трасса<select id="rc-' + x.id + '"><option value="0">— не выбрана —</option>' +
+      opts.map(function (c) { return '<option value="' + c.id + '"' + (x.course_id === c.id ? " selected" : "") + ">" + esc(c.title) + (c.length ? " (" + fmtLen(c.length) + ")" : "") + (c.ran ? "" : " — не отмечена «Бегали»") + "</option>"; }).join("") +
+      "</select></label>" +
+      '<label for="rt-' + x.id + '">Время, с<input id="rt-' + x.id + '" data-k="time" inputmode="decimal" placeholder="38,45" style="width:90px" value="' + (x.run_time == null ? "" : String(x.run_time).replace(".", ",")) + '"></label>' +
+      '<label for="rp-' + x.id + '">Штраф, баллы<input id="rp-' + x.id + '" data-k="pen" inputmode="numeric" placeholder="0" style="width:80px" value="' + (x.run_pen ? x.run_pen : "") + '"></label>' +
+      '<label style="display:flex;gap:6px;align-items:center;color:var(--fg)"><input type="checkbox" data-k="dq"' + (x.run_dq ? " checked" : "") + "> Снят</label>" +
+      '<button class="btn small">Сохранить</button></form></details>';
   }
 
   /* «Это я» и «Удалить» без перерисовки страницы: меняем только кнопки, подпись и счётчики */
@@ -415,14 +485,13 @@
       S = st;
       var x = (S.videos || []).filter(function (v) { return String(v.id) === String(id); })[0];
       if (!x) { render(); return; }
-      if (onlyMine && !x.mine) { render(); return; } // в режиме «Только мои» ролик должен исчезнуть
+      if (!passes(x)) { render(); return; } // в режиме «Только мои»/«Избранное» ролик должен исчезнуть
       var acts = root.querySelector('[data-acts="' + id + '"]');
       if (acts) { acts.innerHTML = itemActions(x, S.role === "admin", !!S.user); bindVideoButtons(acts); }
       var tg = root.querySelector('[data-tagged="' + id + '"]');
       if (tg) tg.textContent = itemTagged(x);
-      var mineCount = (S.videos || []).filter(function (v) { return v.mine; }).length;
-      var fm = root.querySelector('button[data-filter="mine"]');
-      if (fm) fm.textContent = "Только мои (" + mineCount + ")";
+      var lb = filterLabels();
+      Array.prototype.forEach.call(root.querySelectorAll("button[data-filter]"), function (b) { b.textContent = lb[b.dataset.filter]; });
       toast(okMsg ? okMsg(x) : (x.mine ? "Отмечено: это вы." : "Отметка снята."));
     }, function (e) {
       btn.disabled = false;
@@ -432,8 +501,29 @@
   }
 
   function bindVideoButtons(scope) {
+    Array.prototype.forEach.call(scope.querySelectorAll("form[data-runf]"), function (fm) {
+      fm.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var id = fm.dataset.runf, btn = fm.querySelector("button");
+        btn.disabled = true;
+        api("/video/" + id + "/run", "POST", { course_id: +fm.querySelector("select").value, time: fm.querySelector('[data-k="time"]').value, pen: fm.querySelector('[data-k="pen"]').value, dq: fm.querySelector('[data-k="dq"]').checked }).then(function (st) {
+          S = st;
+          var x = (S.videos || []).filter(function (v) { return String(v.id) === String(id); })[0];
+          var el = root.querySelector('[data-run="' + id + '"]');
+          if (x && el) { var info = runInfo(x); el.innerHTML = info; el.hidden = !info; }
+          btn.disabled = false;
+          fm.closest("details").open = false;
+          toast(x && x.run_time ? "Сохранено: " + fmtTime(x.run_time) : "Сохранено.");
+        }, function (err) { btn.disabled = false; toast(err.message); });
+      });
+    });
     Array.prototype.forEach.call(scope.querySelectorAll("button[data-me]"), function (b) {
       b.addEventListener("click", function () { toggleMe(b.dataset.me, b); });
+    });
+    Array.prototype.forEach.call(scope.querySelectorAll("button[data-fav]"), function (b) {
+      b.addEventListener("click", function () {
+        toggleMe(b.dataset.fav, b, "/fav", function (x) { return x.fav ? "Добавлено в избранное." : "Убрано из избранного."; });
+      });
     });
     Array.prototype.forEach.call(scope.querySelectorAll("button[data-dv]"), function (b) { armOne(b, "dv", function (id) { return act("/videos/" + id, "DELETE"); }); });
     Array.prototype.forEach.call(scope.querySelectorAll("button[data-mark]"), function (b) {
@@ -459,8 +549,8 @@
     var a = S.role === "admin";
     var logged = !!S.user;
     var all = S.videos || [];
-    var mineCount = all.filter(function (x) { return x.mine; }).length;
-    var shown = logged && onlyMine ? all.filter(function (x) { return x.mine; }) : all;
+    var onlyMine = logged && vFilter !== "all";
+    var shown = onlyMine ? all.filter(passes) : all;
     var byDate = {};
     shown.forEach(function (x) { (byDate[x.date] = byDate[x.date] || []).push(x); });
     var dates = Object.keys(byDate).sort().reverse();
@@ -468,11 +558,10 @@
 
     var filter = logged
       ? '<div class="row" style="gap:8px" role="group" aria-label="Какие видео показать">' +
-        '<button type="button" class="btn small ' + (onlyMine ? "ghost" : "") + '" data-filter="all">Все видео (' + all.length + ")</button>" +
-        '<button type="button" class="btn small ' + (onlyMine ? "" : "ghost") + '" data-filter="mine">Только мои (' + mineCount + ")</button></div>"
+        ["all", "mine", "fav"].map(function (k) { return '<button type="button" class="btn small ' + (vFilter === k ? "" : "ghost") + '" data-filter="' + k + '">' + filterLabels()[k] + "</button>"; }).join("") + "</div>"
       : "";
     var lead = a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную."
-      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои». Ненужное отметьте «Удалить»: видео сотрётся через " + (+(S.video_days || 30)) + " дней, до этого пометку можно снять."
+      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои», а лучшие — ⭐ в избранное. Ненужное отметьте «Удалить»: видео сотрётся через " + (+(S.video_days || 30)) + " дней, до этого пометку можно снять."
       : "Записи тренировок по дням. Войдите, чтобы отмечать свои видео.";
     var html;
 
@@ -480,10 +569,13 @@
       // ---- один день
       var list = byDate[openDate], total = 0;
       list.forEach(function (x) { total += +x.size || 0; });
-      html = '<div class="row" style="gap:8px;align-items:center"><button type="button" class="btn small ghost" data-back="1">← Все дни</button></div>' +
+      var daySes = (S.sessions || []).filter(function (x) { return x.date === openDate; })[0];
+      var dayCourses = daySes && S.courses ? coursesFor(daySes.id) : [];
+      html = '<div class="row" style="gap:8px;align-items:center"><button type="button" class="btn small ghost" data-back="1">← Все дни</button>' +
+        (daySes && S.courses ? '<button type="button" class="btn small ghost" data-dayses="' + daySes.id + '">Трассы этого дня (' + dayCourses.length + ")</button>" : "") + "</div>" +
         '<div class="row" style="justify-content:space-between;align-items:center"><h1>' + esc(fmtDate(openDate)) + '</h1>' +
         (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + openDate + '">Удалить весь день</button>' : "") + "</div>" +
-        '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? " · только мои" : "") + (markedCount(list) ? " · к удалению: " + markedCount(list) : "") + "</p>" + filter +
+        '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? (vFilter === "fav" ? " · избранное" : " · только мои") : "") + (markedCount(list) ? " · к удалению: " + markedCount(list) : "") + "</p>" + filter +
         '<div class="row" style="gap:8px" role="group" aria-label="Размер видео">' +
         '<button type="button" class="btn small ' + (bigView ? "" : "ghost") + '" data-view="big">Крупно</button>' +
         '<button type="button" class="btn small ' + (bigView ? "ghost" : "") + '" data-view="small">Плиткой</button></div>' +
@@ -497,15 +589,18 @@
         var title = new Date(+p[0], +p[1] - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
         return "<h2 style=\"text-transform:capitalize\">" + esc(title) + '</h2><div class="cards">' + months[m].map(function (d) {
           var list = byDate[d], total = 0, mine = 0;
-          list.forEach(function (x) { total += +x.size || 0; if (x.mine) mine++; });
+          var fv = 0;
+          list.forEach(function (x) { total += +x.size || 0; if (x.mine) mine++; if (x.fav) fv++; });
           return '<button type="button" class="slot" data-day="' + d + '" style="text-align:left;cursor:pointer;font:inherit;color:inherit">' +
             '<span class="d">' + esc(fmtDate(d)) + "</span>" +
             '<span class="t">' + list.length + " видео" + (total ? " · " + mb(total) : "") + "</span>" +
             (markedCount(list) ? '<span class="who">к удалению: ' + markedCount(list) + "</span>" : "") +
-            (logged && mine ? '<span class="pill ok" style="justify-self:start">мои: ' + mine + "</span>" : "") + "</button>";
+            (logged && mine ? '<span class="pill ok" style="justify-self:start">мои: ' + mine + (fv ? " · ⭐ " + fv : "") + "</span>" : "") + "</button>";
         }).join("") + "</div>";
       }).join("");
-      var empty = logged && onlyMine
+      var empty = onlyMine && vFilter === "fav"
+        ? '<div class="panel empty">В избранном пока пусто. Под своими видео (где стоит «Это я») нажмите «☆ В избранное».</div>'
+        : onlyMine
         ? '<div class="panel empty">Вы ещё не отметили себя ни на одном видео. Откройте день и нажмите «Это я» под роликом, где вы с собакой.</div>'
         : '<div class="panel empty">Видео пока нет.</div>';
       html = '<div><h1>Видео тренировок</h1><p class="lead">' + lead + "</p></div>" + filter +
@@ -518,10 +613,13 @@
     if (f) f.addEventListener("submit", function (e) { e.preventDefault(); act("/videos", "POST", { date: q("#acl-vd").value, title: q("#acl-vt").value, url: q("#acl-vu").value }).catch(function () {}); });
     qa("button[data-day]").forEach(function (b) { b.addEventListener("click", function () { setVideoDate(b.dataset.day); }); });
     qa("button[data-back]").forEach(function (b) { b.addEventListener("click", function () { setVideoDate(null); }); });
+    qa("button[data-dayses]").forEach(function (b) {
+      b.addEventListener("click", function () { tab = "schedule"; openDate = null; setSession(+b.dataset.dayses); });
+    });
     qa("button[data-filter]").forEach(function (b) {
       b.addEventListener("click", function () {
-        onlyMine = b.dataset.filter === "mine";
-        try { localStorage.setItem("acl-only-mine", onlyMine ? "1" : "0"); } catch (e) {}
+        vFilter = b.dataset.filter;
+        try { localStorage.setItem("acl-vfilter", vFilter); } catch (e) {}
         render();
       });
     });
@@ -623,6 +721,8 @@
     var img = root.querySelector("#cf-img"), ttl = root.querySelector("#cf-title");
     if ((img && img.files && img.files.length) || (ttl && ttl.value)) return;
     if (Array.prototype.some.call(root.querySelectorAll("textarea"), function (t) { return t.value !== t.defaultValue; })) return;
+    if (Array.prototype.some.call(root.querySelectorAll("form[data-runf] input, form[data-cedit] input, #cf-len"), function (t) { return t.type === "checkbox" ? t.checked !== t.defaultChecked : t.value !== t.defaultValue; })) return;
+    if (Array.prototype.some.call(root.querySelectorAll("form[data-runf] select"), function (sl) { return Array.prototype.some.call(sl.options, function (o) { return o.selected !== o.defaultSelected; }); })) return;
     // Не перерисовываем, пока смотрят видео — иначе ролик остановится
     if (Array.prototype.some.call(root.querySelectorAll("video"), function (vd) { return !vd.paused && !vd.ended; })) return;
     api("/state").then(function (st) { S = st; render(); }).catch(function () {});

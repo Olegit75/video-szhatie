@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ACL_DB {
 
-	const DB_VERSION = '5';
+	const DB_VERSION = '7';
 
 	public static function t( $name ) {
 		global $wpdb;
@@ -82,6 +82,10 @@ class ACL_DB {
 			size bigint(20) unsigned NOT NULL DEFAULT 0,
 			delete_after date DEFAULT NULL,
 			delete_by bigint(20) unsigned DEFAULT NULL,
+			course_id bigint(20) unsigned DEFAULT NULL,
+			run_time decimal(7,2) DEFAULT NULL,
+			run_pen smallint(5) unsigned NOT NULL DEFAULT 0,
+			run_dq tinyint(1) NOT NULL DEFAULT 0,
 			PRIMARY KEY  (id),
 			KEY date (date)
 			) $c;"
@@ -91,6 +95,7 @@ class ACL_DB {
 			video_id bigint(20) unsigned NOT NULL,
 			user_id bigint(20) unsigned NOT NULL,
 			created datetime DEFAULT NULL,
+			fav tinyint(1) NOT NULL DEFAULT 0,
 			PRIMARY KEY  (video_id,user_id),
 			KEY user_id (user_id)
 			) $c;"
@@ -103,6 +108,8 @@ class ACL_DB {
 			title varchar(200) NOT NULL,
 			note text,
 			image varchar(500) NOT NULL DEFAULT '',
+			length_m decimal(6,1) DEFAULT NULL,
+			ran tinyint(1) NOT NULL DEFAULT 0,
 			created datetime DEFAULT NULL,
 			PRIMARY KEY  (id),
 			KEY session_id (session_id)
@@ -216,14 +223,18 @@ class ACL_DB {
 	 */
 	public static function videos( $uid = 0, $names = false ) {
 		global $wpdb;
-		$rows = $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local, delete_after, delete_by FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
+		$rows = $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local, delete_after, delete_by, course_id, run_time, run_pen, run_dq FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
 		if ( ! $rows ) {
 			return array();
 		}
-		$tags  = $wpdb->get_results( 'SELECT video_id, user_id FROM ' . self::t( 'video_tags' ), ARRAY_A ); // phpcs:ignore
+		$tags  = $wpdb->get_results( 'SELECT video_id, user_id, fav FROM ' . self::t( 'video_tags' ), ARRAY_A ); // phpcs:ignore
 		$by    = array();
 		$users = array();
+		$favs  = array();
 		foreach ( (array) $tags as $t ) {
+			if ( $uid && (int) $t['user_id'] === (int) $uid && (int) $t['fav'] ) {
+				$favs[ (int) $t['video_id'] ] = true;
+			}
 			$by[ (int) $t['video_id'] ][] = (int) $t['user_id'];
 			$users[ (int) $t['user_id'] ] = true;
 		}
@@ -254,6 +265,13 @@ class ACL_DB {
 				$r['marked_by'] = isset( $label[ $mb ] ) ? $label[ $mb ] : ( get_userdata( $mb ) ? get_userdata( $mb )->display_name : '' );
 			}
 			unset( $r['delete_by'] );
+			// Трасса и время прохождения → скорость
+			$r['can_run']  = current_user_can( ACL_CAP ) || ( $uid && in_array( (int) $uid, $ids, true ) );
+			$r['course_id'] = $r['course_id'] ? (int) $r['course_id'] : null;
+			$r['run_time']  = null !== $r['run_time'] ? (float) $r['run_time'] : null;
+			$r['run_pen']   = (int) $r['run_pen'];
+			$r['run_dq']    = (bool) (int) $r['run_dq'];
+			$r['fav']       = isset( $favs[ (int) $r['id'] ] );
 			$r['tagged'] = $names ? array_values( array_filter( array_map( static function ( $u ) use ( $label ) {
 				return isset( $label[ $u ] ) ? $label[ $u ] : '';
 			}, $ids ) ) ) : array();

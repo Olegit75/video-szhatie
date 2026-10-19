@@ -122,6 +122,7 @@ class ACL_API {
 			'news'      => self::news(),
 			'videos'    => ACL_DB::videos( get_current_user_id(), is_user_logged_in() ),
 			'video_days' => (int) $cfg['video_days'],
+			'course_titles' => ACL_Course::titles(),
 			'sessions'  => array(),
 		);
 

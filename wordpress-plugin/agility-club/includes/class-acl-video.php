@@ -38,6 +38,11 @@ class ACL_Video {
 			'callback'            => array( __CLASS__, 'toggle_me' ),
 			'permission_callback' => 'is_user_logged_in',
 		) );
+		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/fav', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'toggle_fav' ),
+			'permission_callback' => 'is_user_logged_in',
+		) );
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/delete', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'delete_own' ),
@@ -264,6 +269,20 @@ class ACL_Video {
 		} else {
 			$wpdb->insert( $t, array( 'video_id' => $id, 'user_id' => $uid, 'created' => current_time( 'mysql' ) ) );
 		}
+		return ACL_API::state();
+	}
+
+	/** «Избранное»: только на своих видео (где стоит «Это я»). */
+	public static function toggle_fav( WP_REST_Request $r ) {
+		global $wpdb;
+		$id  = (int) $r['id'];
+		$uid = get_current_user_id();
+		$t   = ACL_DB::t( 'video_tags' );
+		$fav = $wpdb->get_var( $wpdb->prepare( "SELECT fav FROM $t WHERE video_id = %d AND user_id = %d", $id, $uid ) ); // phpcs:ignore
+		if ( null === $fav ) {
+			return self::err( 'Сначала отметьте себя на видео кнопкой «Это я».', 403 );
+		}
+		$wpdb->update( $t, array( 'fav' => (int) $fav ? 0 : 1 ), array( 'video_id' => $id, 'user_id' => $uid ) );
 		return ACL_API::state();
 	}
 
