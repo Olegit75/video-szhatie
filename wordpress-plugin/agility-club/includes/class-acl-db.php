@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ACL_DB {
 
-	const DB_VERSION = '3';
+	const DB_VERSION = '4';
 
 	public static function t( $name ) {
 		global $wpdb;
@@ -80,6 +80,8 @@ class ACL_DB {
 			url varchar(500) NOT NULL,
 			file varchar(500) NOT NULL DEFAULT '',
 			size bigint(20) unsigned NOT NULL DEFAULT 0,
+			delete_after date DEFAULT NULL,
+			delete_by bigint(20) unsigned DEFAULT NULL,
 			PRIMARY KEY  (id),
 			KEY date (date)
 			) $c;"
@@ -192,7 +194,7 @@ class ACL_DB {
 	 */
 	public static function videos( $uid = 0, $names = false ) {
 		global $wpdb;
-		$rows = $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
+		$rows = $wpdb->get_results( 'SELECT id, date, title, url, size, (file <> \'\') AS local, delete_after, delete_by FROM ' . self::t( 'videos' ) . ' ORDER BY date DESC, id DESC', ARRAY_A ); // phpcs:ignore
 		if ( ! $rows ) {
 			return array();
 		}
@@ -220,8 +222,16 @@ class ACL_DB {
 		foreach ( $rows as &$r ) {
 			$ids         = isset( $by[ (int) $r['id'] ] ) ? $by[ (int) $r['id'] ] : array();
 			$r['mine']   = $uid && in_array( (int) $uid, $ids, true );
-			// Удалить может администратор или единственный отметивший себя участник
-			$r['can_delete'] = current_user_can( ACL_CAP ) || ( $uid && array( (int) $uid ) === array_values( array_unique( $ids ) ) );
+			// Пометить «Удалить» (или снять пометку) может отметивший себя «Это я» участник или администратор
+			$r['can_mark'] = current_user_can( ACL_CAP ) || ( $uid && in_array( (int) $uid, $ids, true ) );
+			$r['marked']   = ! empty( $r['delete_after'] );
+			$r['days_left'] = $r['marked'] ? max( 0, (int) round( ( strtotime( $r['delete_after'] ) - strtotime( current_time( 'Y-m-d' ) ) ) / DAY_IN_SECONDS ) ) : null;
+			$r['marked_by'] = '';
+			if ( $r['marked'] && $names && $r['delete_by'] ) {
+				$mb             = (int) $r['delete_by'];
+				$r['marked_by'] = isset( $label[ $mb ] ) ? $label[ $mb ] : ( get_userdata( $mb ) ? get_userdata( $mb )->display_name : '' );
+			}
+			unset( $r['delete_by'] );
 			$r['tagged'] = $names ? array_values( array_filter( array_map( static function ( $u ) use ( $label ) {
 				return isset( $label[ $u ] ) ? $label[ $u ] : '';
 			}, $ids ) ) ) : array();

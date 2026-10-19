@@ -255,12 +255,20 @@
     return '<button type="button" class="btn small ' + (x.mine ? "" : "ghost") + '" data-me="' + x.id + '" aria-pressed="' + (x.mine ? "true" : "false") + '">' + (x.mine ? "✓ Это я" : "Это я") + "</button>";
   }
   function itemActions(x, a, logged) {
-    return (logged ? meButton(x) : "") +
-      (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить</button>'
-         : x.can_delete ? '<button type="button" class="btn small danger" data-dvown="' + x.id + '">Удалить</button>' : "");
+    var days = +(S.video_days || 30);
+    var mark = x.can_mark
+      ? (x.marked
+          ? '<button type="button" class="btn small" data-mark="' + x.id + '">Отменить удаление</button>'
+          : '<button type="button" class="btn small danger" data-mark="' + x.id + '">Удалить</button>')
+      : "";
+    return (logged ? meButton(x) : "") + mark +
+      (a ? '<button type="button" class="btn small danger" data-dv="' + x.id + '">Удалить сейчас</button>' : "");
   }
   function itemTagged(x) {
-    return (x.tagged || []).length ? "На видео: " + x.tagged.join(", ") : "";
+    var parts = [];
+    if ((x.tagged || []).length) parts.push("На видео: " + x.tagged.join(", "));
+    if (x.marked) parts.push("🗑 Удалится " + (x.days_left ? "через " + x.days_left + " дн." : "сегодня ночью") + (x.marked_by ? " (пометил: " + x.marked_by + ")" : ""));
+    return parts.join(" · ");
   }
 
   function videoItem(x, a, logged) {
@@ -277,12 +285,12 @@
       '<div class="row" style="gap:8px" data-acts="' + x.id + '">' + itemActions(x, a, logged) + "</div></div>";
   }
 
-  /* «Это я» без перерисовки страницы: меняем только кнопку, подпись и счётчики */
-  function toggleMe(id, btn) {
+  /* «Это я» и «Удалить» без перерисовки страницы: меняем только кнопки, подпись и счётчики */
+  function toggleMe(id, btn, path, okMsg) {
     if (btn.dataset.wait) return;
     btn.dataset.wait = "1";
     btn.disabled = true;
-    api("/video/" + id + "/me", "POST").then(function (st) {
+    api("/video/" + id + (path || "/me"), "POST").then(function (st) {
       S = st;
       var x = (S.videos || []).filter(function (v) { return String(v.id) === String(id); })[0];
       if (!x) { render(); return; }
@@ -294,7 +302,7 @@
       var mineCount = (S.videos || []).filter(function (v) { return v.mine; }).length;
       var fm = root.querySelector('button[data-filter="mine"]');
       if (fm) fm.textContent = "Только мои (" + mineCount + ")";
-      toast(x.mine ? "Отмечено: это вы." : "Отметка снята.");
+      toast(okMsg ? okMsg(x) : (x.mine ? "Отмечено: это вы." : "Отметка снята."));
     }, function (e) {
       btn.disabled = false;
       delete btn.dataset.wait;
@@ -307,8 +315,12 @@
       b.addEventListener("click", function () { toggleMe(b.dataset.me, b); });
     });
     Array.prototype.forEach.call(scope.querySelectorAll("button[data-dv]"), function (b) { armOne(b, "dv", function (id) { return act("/videos/" + id, "DELETE"); }); });
-    Array.prototype.forEach.call(scope.querySelectorAll("button[data-dvown]"), function (b) {
-      armOne(b, "dvown", function (id) { return act("/video/" + id + "/delete", "POST").then(function () { toast("Видео удалено."); }); });
+    Array.prototype.forEach.call(scope.querySelectorAll("button[data-mark]"), function (b) {
+      b.addEventListener("click", function () {
+        toggleMe(b.dataset.mark, b, "/delete", function (x) {
+          return x.marked ? "Видео помечено: удалится через " + x.days_left + " дн. Пометку можно снять." : "Удаление отменено.";
+        });
+      });
     });
   }
 
@@ -320,18 +332,7 @@
     });
   }
 
-  function daysLeft(d) {
-    var keep = +((S.settings || {}).video_days || S.video_days || 30);
-    if (!keep) return null;
-    var p = d.split("-"), t = S.today.split("-");
-    var age = Math.round((new Date(+t[0], +t[1] - 1, +t[2]) - new Date(+p[0], +p[1] - 1, +p[2])) / 86400000);
-    return Math.max(0, keep - age);
-  }
-  function leftLabel(d) {
-    var n = daysLeft(d);
-    if (n === null) return "";
-    return n === 0 ? "удалится сегодня ночью" : "удалится через " + n + " дн.";
-  }
+  function markedCount(list) { return list.filter(function (x) { return x.marked; }).length; }
 
   function viewVideo(v) {
     var a = S.role === "admin";
@@ -350,7 +351,7 @@
         '<button type="button" class="btn small ' + (onlyMine ? "" : "ghost") + '" data-filter="mine">Только мои (' + mineCount + ")</button></div>"
       : "";
     var lead = a ? "Видео загружаются с телефона приложением «Сжатие видео». Ссылку на ролик в ВК или Rutube можно добавить и вручную."
-      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои», а ненужные удалить самим. Видео хранятся " + (+((S.settings || {}).video_days || S.video_days || 30)) + " дней."
+      : logged ? "Нажмите «Это я» под своими роликами — потом их легко найти кнопкой «Только мои». Ненужное отметьте «Удалить»: видео сотрётся через " + (+(S.video_days || 30)) + " дней, до этого пометку можно снять."
       : "Записи тренировок по дням. Войдите, чтобы отмечать свои видео.";
     var html;
 
@@ -361,7 +362,7 @@
       html = '<div class="row" style="gap:8px;align-items:center"><button type="button" class="btn small ghost" data-back="1">← Все дни</button></div>' +
         '<div class="row" style="justify-content:space-between;align-items:center"><h1>' + esc(fmtDate(openDate)) + '</h1>' +
         (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + openDate + '">Удалить весь день</button>' : "") + "</div>" +
-        '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? " · только мои" : "") + (leftLabel(openDate) ? " · " + leftLabel(openDate) : "") + "</p>" + filter +
+        '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? " · только мои" : "") + (markedCount(list) ? " · к удалению: " + markedCount(list) : "") + "</p>" + filter +
         '<div class="row" style="gap:8px" role="group" aria-label="Размер видео">' +
         '<button type="button" class="btn small ' + (bigView ? "" : "ghost") + '" data-view="big">Крупно</button>' +
         '<button type="button" class="btn small ' + (bigView ? "ghost" : "") + '" data-view="small">Плиткой</button></div>' +
@@ -379,7 +380,7 @@
           return '<button type="button" class="slot" data-day="' + d + '" style="text-align:left;cursor:pointer;font:inherit;color:inherit">' +
             '<span class="d">' + esc(fmtDate(d)) + "</span>" +
             '<span class="t">' + list.length + " видео" + (total ? " · " + mb(total) : "") + "</span>" +
-            (leftLabel(d) ? '<span class="who">' + leftLabel(d) + "</span>" : "") +
+            (markedCount(list) ? '<span class="who">к удалению: ' + markedCount(list) + "</span>" : "") +
             (logged && mine ? '<span class="pill ok" style="justify-self:start">мои: ' + mine + "</span>" : "") + "</button>";
         }).join("") + "</div>";
       }).join("");
@@ -442,7 +443,7 @@
       '<label for="c-org">Организатор<input id="c-org" value="' + esc(o ? o.name : "") + '"></label>' +
       '<label for="c-shares">Долей организатора<input type="number" id="c-shares" value="' + st.org_shares + '"></label>' +
       '<label for="c-disc">Скидка организатору, ₽<input type="number" id="c-disc" value="' + st.org_discount + '" step="50"></label>' +
-      '<label for="c-vdays">Хранить видео, дней (0 — бессрочно)<input type="number" id="c-vdays" value="' + (st.video_days == null ? 30 : st.video_days) + '" min="0"></label></div>' +
+      '<label for="c-vdays">Помеченные «Удалить» стираются через, дней<input type="number" id="c-vdays" value="' + (st.video_days == null ? 30 : st.video_days) + '" min="1"></label></div>' +
       '<label for="c-mem">Участники, по одному в строке (собака владельца — отдельной строкой). Удалённые из списка скрываются, их история сохраняется.<textarea id="c-mem">' + esc(mem.map(function (m) { return m.name; }).join("\n")) + "</textarea></label>" +
       '<div class="row"><button class="btn">Сохранить</button></div></form>';
 

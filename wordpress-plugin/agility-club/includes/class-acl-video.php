@@ -267,33 +267,41 @@ class ACL_Video {
 		return ACL_API::state();
 	}
 
-	/** Удаление участником: только если он отметил себя «Это я» и больше никто не отмечен. */
+	/**
+	 * «Удалить» у участника — это пометка: видео сотрётся через N дней (по умолчанию 30).
+	 * Пока срок не вышел, пометку может снять любой отметивший себя «Это я» или администратор.
+	 * Ставить пометку может только тот, кто отметил себя на видео, или администратор.
+	 */
 	public static function delete_own( WP_REST_Request $r ) {
 		global $wpdb;
 		$id  = (int) $r['id'];
 		$uid = get_current_user_id();
+		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT id, delete_after FROM ' . ACL_DB::t( 'videos' ) . ' WHERE id = %d', $id ) ); // phpcs:ignore
+		if ( ! $row ) {
+			return self::err( 'Видео не найдено.', 404 );
+		}
 		if ( ! current_user_can( ACL_CAP ) ) {
 			$ids = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( 'SELECT user_id FROM ' . ACL_DB::t( 'video_tags' ) . ' WHERE video_id = %d', $id ) ) ); // phpcs:ignore
 			if ( ! in_array( $uid, $ids, true ) ) {
-				return self::err( 'Удалить можно только видео, где вы отметили себя «Это я».', 403 );
-			}
-			if ( count( array_unique( $ids ) ) > 1 ) {
-				return self::err( 'На этом видео отмечены и другие участники — удалить его нельзя.', 403 );
+				return self::err( 'Сначала отметьте себя на видео кнопкой «Это я».', 403 );
 			}
 		}
-		self::delete_row( $id );
+		if ( $row->delete_after ) {
+			$wpdb->update( ACL_DB::t( 'videos' ), array( 'delete_after' => null, 'delete_by' => null ), array( 'id' => $id ) );
+		} else {
+			$days = max( 1, (int) ACL_DB::settings()['video_days'] );
+			$wpdb->update( ACL_DB::t( 'videos' ), array(
+				'delete_after' => gmdate( 'Y-m-d', strtotime( current_time( 'Y-m-d' ) ) + $days * DAY_IN_SECONDS ),
+				'delete_by'    => $uid,
+			), array( 'id' => $id ) );
+		}
 		return ACL_API::state();
 	}
 
-	/** Автоудаление: видео старше N дней (по дате тренировки). Запускается раз в сутки. */
+	/** Раз в сутки стирает видео, у которых истёк срок пометки «Удалить». Непомеченные не трогает. */
 	public static function cleanup() {
 		global $wpdb;
-		$days = (int) ACL_DB::settings()['video_days'];
-		if ( $days < 1 ) {
-			return 0; // 0 — хранить бессрочно
-		}
-		$cut = gmdate( 'Y-m-d', current_time( 'timestamp' ) - $days * DAY_IN_SECONDS );
-		$ids = $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM ' . ACL_DB::t( 'videos' ) . ' WHERE date < %s', $cut ) ); // phpcs:ignore
+		$ids = $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM ' . ACL_DB::t( 'videos' ) . ' WHERE delete_after IS NOT NULL AND delete_after <= %s', current_time( 'Y-m-d' ) ) ); // phpcs:ignore
 		foreach ( $ids as $vid ) {
 			self::delete_row( (int) $vid );
 		}
