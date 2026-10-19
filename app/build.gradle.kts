@@ -11,8 +11,8 @@ android {
         applicationId = "ru.agility.videoszhatie"
         minSdk = 24          // Android 7+
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "2.0"
     }
 
     buildTypes {
@@ -39,4 +39,6 @@ dependencies {
     implementation("androidx.media3:media3-common:$media3")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

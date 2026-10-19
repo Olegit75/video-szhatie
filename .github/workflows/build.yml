@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -27,6 +28,15 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+
+      # Журнал ошибки — в задачу (Issues), чтобы его можно было прочитать через API
+      - name: Сообщить об ошибке сборки
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          { echo '```'; grep -E "^e: |error:|FAILURE|What went wrong" -A3 build.log | head -150; echo; tail -60 build.log; echo '```'; } > err.md
+          gh issue create --title "Сборка ${{ github.run_number }} не удалась" --body-file err.md || true
 
       - name: Сохранить журнал сборки
         if: always()
