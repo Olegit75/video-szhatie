@@ -70,7 +70,7 @@
       '<div class="who-am-i">' + auth + "</div></div></header>" +
       '<main><div class="wrap" id="acl-view"></div></main>';
     qa("nav button").forEach(function (b) {
-      b.addEventListener("click", function () { tab = b.dataset.tab; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); });
+      b.addEventListener("click", function () { tab = b.dataset.tab; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
     });
     var v = q("#acl-view");
     ({ schedule: viewSchedule, profile: viewProfile, mine: viewMine, sessions: viewSessions, debts: viewDebts, news: viewNews, video: viewVideo, settings: viewSettings }[tab])(v);
@@ -340,4 +340,16 @@
 
   api("/state").then(function (st) { S = st; render(); })
     .catch(function () { root.innerHTML = '<div class="empty">Не удалось загрузить данные. Обновите страницу.</div>'; });
+
+  /* Свежие данные: при переключении вкладки, возврате на страницу и раз в минуту.
+     Не перерисовываем, пока человек что-то вводит, чтобы не сбить ввод. */
+  function refresh() {
+    if (busy || !S) return;
+    var a = document.activeElement;
+    if (a && root.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+    api("/state").then(function (st) { S = st; render(); }).catch(function () {});
+  }
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(); });
+  window.addEventListener("focus", refresh);
+  setInterval(function () { if (!document.hidden) refresh(); }, 60000);
 })();
