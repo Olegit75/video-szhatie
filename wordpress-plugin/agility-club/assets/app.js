@@ -465,7 +465,7 @@
     var opts = (S.course_titles || []).filter(function (c) { return c.date === x.date; })
       .sort(function (a, b) { return b.ran - a.ran || a.id - b.id; });
     if (!opts.length) return html + '<div class="status">Трасс этого дня нет — добавьте во вкладке «Расписание → Трассы».</div>';
-    return html + '<details style="margin-top:4px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">' + (x.course_id ? "Изменить трассу, время, штраф" : "Указать трассу, время, штраф") + "</summary>" +
+    return html + '<details style="margin-top:4px"><summary style="cursor:pointer;font-size:13px;color:var(--accent)">' + (x.course_id ? "Изменить трассу, время, штраф · ⏱ секундомер" : "Указать трассу, время, штраф · ⏱ секундомер") + "</summary>" + (+x.local === 1 ? timerBar(x.id) : "") +
       '<form class="row" data-runf="' + x.id + '" style="gap:8px;align-items:end;margin-top:6px">' +
       '<label for="rc-' + x.id + '" style="flex:1;min-width:140px">Трасса<select id="rc-' + x.id + '"><option value="0">— не выбрана —</option>' +
       opts.map(function (c) { return '<option value="' + c.id + '"' + (x.course_id === c.id ? " selected" : "") + ">" + esc(c.title) + (c.length ? " (" + fmtLen(c.length) + ")" : "") + (c.ran ? "" : " — не отмечена «Бегали»") + "</option>"; }).join("") +
@@ -474,6 +474,68 @@
       '<label for="rp-' + x.id + '">Штраф, баллы<input id="rp-' + x.id + '" data-k="pen" inputmode="numeric" placeholder="0" style="width:80px" value="' + (x.run_pen ? x.run_pen : "") + '"></label>' +
       '<label style="display:flex;gap:6px;align-items:center;color:var(--fg)"><input type="checkbox" data-k="dq"' + (x.run_dq ? " checked" : "") + "> Снят</label>" +
       '<button class="btn small">Сохранить</button></form></details>';
+  }
+
+  /* Секундомер по кадрам: время стоп-кадра с миллисекундами, отметки «Старт»/«Финиш» */
+  var FPS = 30; // приложение сжимает видео в 30 кадров/с
+  var marks = {}; // id видео → {s, f}
+  function fmtMs(t) {
+    if (t == null || isNaN(t)) return "—";
+    var m = Math.floor(t / 60), sec = t - m * 60;
+    return m + ":" + (sec < 10 ? "0" : "") + sec.toFixed(3).replace(".", ",");
+  }
+  function timerBar(id) {
+    var mk = marks[id] || {};
+    return '<div class="acl-timer" data-timer="' + id + '" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px dashed var(--line);border-radius:10px">' +
+      '<div class="row" style="gap:8px;align-items:center;justify-content:space-between"><span style="font:600 20px/1 ui-monospace,monospace" data-now>0:00,000</span>' +
+      '<span class="status">кадр ≈ ' + Math.round(1000 / FPS) + " мс</span></div>" +
+      '<div class="row" style="gap:6px">' +
+      '<button type="button" class="btn small ghost" data-step="-1">◀ кадр</button>' +
+      '<button type="button" class="btn small ghost" data-step="1">кадр ▶</button>' +
+      '<button type="button" class="btn small ghost" data-slow>Замедлить 0,25×</button></div>' +
+      '<div class="row" style="gap:6px;align-items:center">' +
+      '<button type="button" class="btn small" data-mk="s">Старт</button><span class="status" data-ms>' + fmtMs(mk.s) + "</span>" +
+      '<button type="button" class="btn small" data-mk="f">Финиш</button><span class="status" data-mf>' + fmtMs(mk.f) + "</span></div>" +
+      '<div class="status" data-res>' + (mk.s != null && mk.f != null ? "Время забега: <b>" + (mk.f - mk.s).toFixed(2).replace(".", ",") + " с</b>" : "Поставьте видео на паузу в момент старта и нажмите «Старт», затем то же на финише. Кнопки «кадр» двигают видео на 1/30 секунды.") + "</div></div>";
+  }
+  function bindTimer(box) {
+    var id = box.dataset.timer, item = box.closest(".acl-vitem"), vd = item && item.querySelector("video");
+    if (!vd) return;
+    var now = box.querySelector("[data-now]"), raf = 0;
+    function show() { now.textContent = fmtMs(vd.currentTime); }
+    function loop() { show(); if (!vd.paused && !vd.ended) raf = requestAnimationFrame(loop); }
+    vd.addEventListener("play", function () { cancelAnimationFrame(raf); loop(); });
+    vd.addEventListener("seeked", show);
+    vd.addEventListener("pause", show);
+    vd.addEventListener("loadedmetadata", show);
+    show();
+    Array.prototype.forEach.call(box.querySelectorAll("[data-step]"), function (b) {
+      b.addEventListener("click", function () {
+        vd.pause();
+        vd.currentTime = Math.max(0, Math.min(vd.duration || 1e9, vd.currentTime + (+b.dataset.step) / FPS));
+      });
+    });
+    var slow = box.querySelector("[data-slow]");
+    slow.addEventListener("click", function () {
+      vd.playbackRate = vd.playbackRate === 1 ? 0.25 : 1;
+      slow.textContent = vd.playbackRate === 1 ? "Замедлить 0,25×" : "Обычная скорость";
+    });
+    Array.prototype.forEach.call(box.querySelectorAll("[data-mk]"), function (b) {
+      b.addEventListener("click", function () {
+        var mk = marks[id] = marks[id] || {};
+        mk[b.dataset.mk] = Math.round(vd.currentTime * 1000) / 1000;
+        box.querySelector("[data-ms]").textContent = fmtMs(mk.s);
+        box.querySelector("[data-mf]").textContent = fmtMs(mk.f);
+        var res = box.querySelector("[data-res]");
+        if (mk.s != null && mk.f != null) {
+          var d = mk.f - mk.s;
+          if (d <= 0) { res.textContent = "Финиш должен быть позже старта."; return; }
+          var inp = item.querySelector('form[data-runf] [data-k="time"]');
+          if (inp) inp.value = d.toFixed(2).replace(".", ",");
+          res.innerHTML = "Время забега: <b>" + d.toFixed(2).replace(".", ",") + " с</b> — подставлено в поле «Время». Выберите трассу и нажмите «Сохранить».";
+        }
+      });
+    });
   }
 
   /* «Это я» и «Удалить» без перерисовки страницы: меняем только кнопки, подпись и счётчики */
@@ -501,6 +563,7 @@
   }
 
   function bindVideoButtons(scope) {
+    Array.prototype.forEach.call(scope.querySelectorAll("[data-timer]"), bindTimer);
     Array.prototype.forEach.call(scope.querySelectorAll("form[data-runf]"), function (fm) {
       fm.addEventListener("submit", function (e) {
         e.preventDefault();
@@ -722,6 +785,7 @@
     if ((img && img.files && img.files.length) || (ttl && ttl.value)) return;
     if (Array.prototype.some.call(root.querySelectorAll("textarea"), function (t) { return t.value !== t.defaultValue; })) return;
     if (Array.prototype.some.call(root.querySelectorAll("form[data-runf] input, form[data-cedit] input, #cf-len"), function (t) { return t.type === "checkbox" ? t.checked !== t.defaultChecked : t.value !== t.defaultValue; })) return;
+    if (Array.prototype.some.call(root.querySelectorAll("details[open] [data-timer]"), function () { return true; })) return;
     if (Array.prototype.some.call(root.querySelectorAll("form[data-runf] select"), function (sl) { return Array.prototype.some.call(sl.options, function (o) { return o.selected !== o.defaultSelected; }); })) return;
     // Не перерисовываем, пока смотрят видео — иначе ролик остановится
     if (Array.prototype.some.call(root.querySelectorAll("video"), function (vd) { return !vd.paused && !vd.ended; })) return;
