@@ -57,8 +57,44 @@ class ACL_Video {
 		$_SERVER['PHP_AUTH_PW']   = $pass;
 	}
 
+	/** Запрос к API клуба — признаём его API-запросом, даже если пользователь определяется раньше REST_REQUEST. */
+	public static function is_club_api_request() {
+		$route = isset( $_GET['rest_route'] ) ? (string) wp_unslash( $_GET['rest_route'] ) : ''; // phpcs:ignore
+		$uri   = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : ''; // phpcs:ignore
+		return 0 === strpos( $route, '/agility/v1' ) || false !== strpos( $uri, '/wp-json/agility/v1' );
+	}
+
+	/** Что видел сервер при последней попытке входа приложения (без пароля) — для диагностики. */
+	public static function log_auth( $user ) {
+		if ( ! self::is_club_api_request() ) {
+			return $user;
+		}
+		$seen = ! empty( $_SERVER['HTTP_AUTHORIZATION'] ) || ! empty( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ) ? 'authorization' : '';
+		if ( ! empty( $_SERVER['HTTP_X_AGILITY_AUTH'] ) ) {
+			$seen .= ( $seen ? '+' : '' ) . 'x-agility';
+		}
+		if ( '' === $seen ) {
+			return $user;
+		}
+		global $wp_rest_application_password_status;
+		$status = $wp_rest_application_password_status;
+		update_option( 'acl_last_auth', array(
+			'time'      => current_time( 'mysql' ),
+			'seen'      => $seen,
+			'login'     => isset( $_SERVER['PHP_AUTH_USER'] ) ? sanitize_user( wp_unslash( $_SERVER['PHP_AUTH_USER'] ) ) : '', // phpcs:ignore
+			'user'      => $user ? (int) ( is_object( $user ) ? $user->ID : $user ) : 0,
+			'status'    => is_wp_error( $status ) ? $status->get_error_code() : ( true === $status ? 'ok' : (string) $status ),
+			'available' => wp_is_application_passwords_available(),
+			'pw_len'    => isset( $_SERVER['PHP_AUTH_PW'] ) ? strlen( preg_replace( '/[^a-z\d]/i', '', (string) $_SERVER['PHP_AUTH_PW'] ) ) : 0, // phpcs:ignore
+		), false );
+		return $user;
+	}
+
 	public static function me() {
 		$u = wp_get_current_user();
+		if ( current_user_can( ACL_CAP ) && isset( $_GET['diag'] ) ) { // phpcs:ignore
+			return rest_ensure_response( get_option( 'acl_last_auth', array() ) );
+		}
 		return rest_ensure_response( array(
 			'logged_in'  => (bool) $u->ID,
 			'name'       => $u->ID ? $u->display_name : '',
@@ -209,3 +245,7 @@ add_filter( 'determine_current_user', static function ( $user ) {
 	ACL_Video::early_auth();
 	return $user;
 }, 5 );
+add_filter( 'determine_current_user', array( 'ACL_Video', 'log_auth' ), 99 );
+add_filter( 'application_password_is_api_request', static function ( $is ) {
+	return $is || ACL_Video::is_club_api_request();
+} );
