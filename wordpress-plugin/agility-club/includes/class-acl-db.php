@@ -290,6 +290,7 @@ class ACL_DB {
 					'frame'      => (int) round( $t * 30 ),
 					'text'       => $n['text'],
 					'who'        => $label[ $nu ],
+					'own'        => $uid && (int) $uid === $nu,
 					'can_delete' => current_user_can( ACL_CAP ) || ( $uid && (int) $uid === $nu ),
 				);
 			}
