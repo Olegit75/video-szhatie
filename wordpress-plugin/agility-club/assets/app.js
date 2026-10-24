@@ -12,8 +12,8 @@
   var TABS = {
     guest:   [["schedule", "Расписание"], ["news", "Новости"], ["video", "Видео"]],
     pending: [["schedule", "Расписание"], ["profile", "Кто вы?"], ["news", "Новости"], ["video", "Видео"]],
-    member:  [["schedule", "Расписание"], ["mine", "Мои тренировки"], ["news", "Новости"], ["video", "Видео"], ["notes", "Заметки"]],
-    admin:   [["schedule", "Расписание"], ["sessions", "Тренировки и оплаты"], ["debts", "Расчёты"], ["news", "Новости"], ["video", "Видео"], ["notes", "Заметки"], ["settings", "Настройки"]]
+    member:  [["schedule", "Расписание"], ["mine", "Мои тренировки"], ["news", "Новости"], ["courses", "Трассы"], ["video", "Видео"], ["notes", "Заметки"]],
+    admin:   [["schedule", "Расписание"], ["sessions", "Тренировки и оплаты"], ["debts", "Расчёты"], ["news", "Новости"], ["courses", "Трассы"], ["video", "Видео"], ["notes", "Заметки"], ["settings", "Настройки"]]
   };
   var ROLE = { guest: "", pending: "Ждёт подтверждения", member: "Участник", admin: "Администратор" };
   var HOURS = [1, 1.5, 2, 2.5, 3, 3.5, 4];
@@ -83,10 +83,10 @@
       '<div class="who-am-i">' + auth + "</div></div></header>" +
       '<main><div class="wrap" id="acl-view"></div></main>';
     qa("nav button").forEach(function (b) {
-      b.addEventListener("click", function () { tab = b.dataset.tab; if (tab === "video") { openDate = null; openVideo = null; } if (tab === "schedule") openSession = null; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
+      b.addEventListener("click", function () { tab = b.dataset.tab; if (tab === "video") { openDate = null; openVideo = null; } if (tab === "courses") openSession = null; try { history.replaceState(null, "", "#" + tab); } catch (e) {} render(); window.scrollTo(0, 0); refresh(); });
     });
     var v = q("#acl-view");
-    ({ schedule: viewSchedule, profile: viewProfile, mine: viewMine, sessions: viewSessions, debts: viewDebts, news: viewNews, video: viewVideo, notes: viewNotes, settings: viewSettings }[tab])(v);
+    ({ schedule: viewSchedule, profile: viewProfile, mine: viewMine, sessions: viewSessions, debts: viewDebts, news: viewNews, courses: viewCourses, video: viewVideo, notes: viewNotes, settings: viewSettings }[tab])(v);
   }
 
   /* ---------- Расписание ---------- */
@@ -95,21 +95,17 @@
       .sort(function (a, b) { return (a.date + a.start).localeCompare(b.date + b.start); });
   }
   var openSession = null;
-  try { var sm = /^#schedule-(\d+)$/.exec(location.hash); if (sm) { openSession = +sm[1]; tab = "schedule"; } } catch (e) {}
+  try { var sm = /^#(?:schedule|courses)-(\d+)$/.exec(location.hash); if (sm) { openSession = +sm[1]; tab = "courses"; } } catch (e) {}
   function setSession(id) {
     openSession = id;
-    try { history.replaceState(null, "", id ? "#schedule-" + id : "#schedule"); } catch (e) {}
+    tab = "courses";
+    try { history.replaceState(null, "", id ? "#courses-" + id : "#courses"); } catch (e) {}
     render();
     window.scrollTo(0, 0);
   }
   function coursesFor(sid) { return (S.courses || []).filter(function (c) { return c.session_id === sid; }); }
 
   function viewSchedule(v) {
-    if (openSession) {
-      var ses = (S.sessions || []).filter(function (x) { return x.id === openSession; })[0];
-      if (ses && S.courses) return viewSession(v, ses);
-      openSession = null;
-    }
     var up = upcoming(), r = S.role, o = org();
     var canCourses = r === "member" || r === "admin";
     var cards = up.map(function (s) {
@@ -141,6 +137,46 @@
         act("/mark", "POST", { session_id: s.id, member_id: S.me.id, mark: s.my ? "" : "Да" }).catch(function () {});
       });
     });
+  }
+
+  /* ---------- Трассы: все дни ---------- */
+  function courseThumb(c, sid) {
+    return '<button type="button" class="acl-cthumb" data-dayses="' + sid + '" title="Открыть схему «' + esc(c.title) + '»">' +
+      (c.image ? '<img src="' + esc(c.image) + '" alt="" loading="lazy">' : '<span class="noimg">нет схемы</span>') +
+      '<span class="ct">' + esc(c.title) + "</span>" +
+      '<span class="cm">' + [c.length ? fmtLen(c.length) : "", c.ran ? "✓ бегали" : "", (c.results || []).length ? "результатов: " + c.results.length : ""].filter(Boolean).join(" · ") + "</span></button>";
+  }
+  function viewCourses(v) {
+    if (openSession) {
+      var ses = (S.sessions || []).filter(function (x) { return x.id === openSession; })[0];
+      if (ses && S.courses) return viewSession(v, ses);
+      openSession = null;
+    }
+    // дни: все прошедшие с трассами + все будущие тренировки; свежие сверху
+    var days = (S.sessions || []).filter(function (s) { return coursesFor(s.id).length || s.date >= S.today; })
+      .sort(function (a, b) { return (b.date + (b.start || "")).localeCompare(a.date + (a.start || "")); });
+    var months = {};
+    days.forEach(function (s) { (months[s.date.slice(0, 7)] = months[s.date.slice(0, 7)] || []).push(s); });
+    var html = Object.keys(months).sort().reverse().map(function (m) {
+      var p = m.split("-");
+      var title = new Date(+p[0], +p[1] - 1, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
+      return '<h2 style="text-transform:capitalize">' + esc(title) + "</h2>" + months[m].map(function (s) {
+        var cs = coursesFor(s.id), vids = (S.videos || []).filter(function (x) { return x.date === s.date; }).length;
+        var future = s.date >= S.today;
+        return '<section class="panel" style="display:grid;gap:10px">' +
+          '<div class="row" style="justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">' + esc(fmtDate(s.date)) +
+          (future ? ' <span class="pill warn">' + (s.date === S.today ? "сегодня" : "впереди") + "</span>" : "") + "</h2>" +
+          '<div class="row" style="gap:8px">' +
+          (vids ? '<button type="button" class="btn small ghost" data-vday="' + esc(s.date) + '">Видео (' + vids + ")</button>" : "") +
+          '<button type="button" class="btn small ghost" data-dayses="' + s.id + '">' + (cs.length ? "Открыть" : (future ? "+ Предложить трассу" : "+ Добавить трассу")) + "</button></div></div>" +
+          (cs.length ? '<div class="acl-cthumbs">' + cs.map(function (c) { return courseThumb(c, s.id); }).join("") + "</div>" : '<div class="status">Трасс пока нет.</div>') +
+          "</section>";
+      }).join("");
+    }).join("");
+    v.innerHTML = '<div><h1>Трассы</h1><p class="lead">Схемы трасс по тренировкам, свежие сверху. Нажмите на схему — откроются схема, длина, результаты и голосование.</p></div>' +
+      (html || '<div class="panel empty">Трасс пока нет.</div>');
+    qa("button[data-dayses]").forEach(function (b) { b.addEventListener("click", function () { setSession(+b.dataset.dayses); window.scrollTo(0, 0); }); });
+    qa("button[data-vday]").forEach(function (b) { b.addEventListener("click", function () { tab = "video"; openVideo = null; setVideoDate(b.dataset.vday); }); });
   }
 
   /* ---------- Тренировка: трассы и голосование ---------- */
@@ -194,13 +230,16 @@
       '<img id="cf-prev" alt="" hidden style="max-width:100%;max-height:300px;object-fit:contain;border-radius:8px">' +
       '<label for="cf-note">Комментарий (необязательно)<textarea id="cf-note" rows="3" style="min-height:0" placeholder="Что отрабатываем, на что обратить внимание"></textarea></label>' +
       '<div class="row"><button class="btn" id="cf-send">Предложить</button><span class="status" id="cf-status"></span></div></form></details>';
-    v.innerHTML = '<div class="row"><button type="button" class="btn small ghost" data-back="1">← Расписание</button></div>' +
+    var dayVids = (S.videos || []).filter(function (x) { return x.date === ses.date; }).length;
+    v.innerHTML = '<div class="row" style="gap:8px"><button type="button" class="btn small ghost" data-back="1">← Все трассы</button>' +
+      (dayVids ? '<button type="button" class="btn small ghost" data-vday="' + esc(ses.date) + '">Видео этого дня (' + dayVids + ")</button>" : "") + "</div>" +
       "<div><h1>Трассы · " + esc(fmtDate(ses.date)) + "</h1>" +
       '<p class="lead">' + esc(ses.start || "") + " · " + esc(ses.hours) + " ч. " +
       (past ? "Тренировка прошла: отметьте «Бегали» у схем, которые бегали, укажите длину — и под видео можно будет ввести время и получить скорость." : "Предложите свою схему или проголосуйте за чужую с комментарием. За свою трассу голосовать нельзя.") + "</p></div>" +
       form + (items || '<div class="panel empty">Трасс пока не предложили.</div>');
 
     q("[data-back]").addEventListener("click", function () { setSession(null); });
+    qa("button[data-vday]").forEach(function (b) { b.addEventListener("click", function () { tab = "video"; openVideo = null; setVideoDate(b.dataset.vday); }); });
     var f = q("#acl-cf");
     if (f) {
       q("#cf-img").addEventListener("change", function () {
@@ -938,7 +977,8 @@
       var daySes = (S.sessions || []).filter(function (x) { return x.date === openDate; })[0];
       var dayCourses = daySes && S.courses ? coursesFor(daySes.id) : [];
       html = '<div class="row" style="gap:8px;align-items:center"><button type="button" class="btn small ghost" data-back="1">← Все дни</button>' +
-        (daySes && S.courses ? '<button type="button" class="btn small ghost" data-dayses="' + daySes.id + '">Трассы этого дня (' + dayCourses.length + ")</button>" : "") + "</div>" +
+        (daySes && S.courses ? '<button type="button" class="btn small ghost" data-dayses="' + daySes.id + '">Схема трассы' + (dayCourses.length === 1 ? "" : "ы (" + dayCourses.length + ")") + " →</button>" : "") + "</div>" +
+        (dayCourses.length ? '<div class="acl-cthumbs">' + dayCourses.map(function (c) { return courseThumb(c, daySes.id); }).join("") + "</div>" : "") +
         '<div class="row" style="justify-content:space-between;align-items:center"><h1>' + esc(fmtDate(openDate)) + '</h1>' +
         (a && !onlyMine ? '<button type="button" class="btn small danger" data-dday="' + openDate + '">Удалить весь день</button>' : "") + "</div>" +
         '<p class="lead">' + list.length + " видео" + (total ? " · " + mb(total) : "") + (onlyMine ? (vFilter === "fav" ? " · избранное" : " · только мои") : "") + (markedCount(list) ? " · к удалению: " + markedCount(list) : "") + "</p>" + filter +
@@ -980,7 +1020,7 @@
     qa("button[data-day]").forEach(function (b) { b.addEventListener("click", function () { setVideoDate(b.dataset.day); }); });
     qa("button[data-back]").forEach(function (b) { b.addEventListener("click", function () { setVideoDate(null); }); });
     qa("button[data-dayses]").forEach(function (b) {
-      b.addEventListener("click", function () { tab = "schedule"; openDate = null; setSession(+b.dataset.dayses); });
+      b.addEventListener("click", function () { openDate = null; setSession(+b.dataset.dayses); window.scrollTo(0, 0); });
     });
     qa("button[data-filter]").forEach(function (b) {
       b.addEventListener("click", function () {
