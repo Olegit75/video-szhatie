@@ -180,6 +180,7 @@ class ACL_Course {
 				'ran'        => 1,
 				'created'    => current_time( 'mysql' ),
 			) );
+			ACL_Notify::queue( 'course', $wpdb->insert_id );
 			return ACL_API::state();
 		}
 		$f = $files['image'];
@@ -232,6 +233,7 @@ class ACL_Course {
 			'ran'        => $date < current_time( 'Y-m-d' ) || ! empty( $r['ran'] ) ? 1 : 0,
 			'created'    => current_time( 'mysql' ),
 		) );
+		ACL_Notify::queue( 'course', $wpdb->insert_id );
 		return ACL_API::state();
 	}
 

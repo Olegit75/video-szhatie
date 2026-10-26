@@ -315,6 +315,20 @@
   }
 
   /* ---------- Мои тренировки ---------- */
+  /* Письма о новых тренировках и трассах */
+  function notifyBox() {
+    return '<label style="display:flex;gap:8px;align-items:center;color:var(--fg)"><input type="checkbox" id="acl-notify-me"' + (S.notify ? " checked" : "") + "> Присылать мне на почту письма о новых тренировках и трассах</label>";
+  }
+  function bindNotify() {
+    var cb = q("#acl-notify-me");
+    if (!cb) return;
+    cb.addEventListener("change", function () {
+      cb.disabled = true;
+      api("/notify", "POST", { on: cb.checked }).then(function (st) { S = st; cb.disabled = false; toast(cb.checked ? "Письма включены." : "Письма отключены."); },
+        function (e) { cb.disabled = false; cb.checked = !cb.checked; toast(e.message); });
+    });
+  }
+
   function viewMine(v) {
     var list = (S.sessions || []).slice().sort(function (a, b) { return (b.date + b.start).localeCompare(a.date + a.start); });
     var debt = 0, paid = 0;
@@ -325,7 +339,9 @@
     }).join("");
     v.innerHTML = "<div><h1>Мои тренировки · " + esc(S.me.name) + '</h1><p class="lead">Нажмите на ячейку: пусто → «Да» (участвую) → «О» (оплатил) → пусто. Сумма пересчитывается, когда кто-то записывается или отменяет запись.</p></div>' +
       '<div class="kpis"><div class="kpi"><b style="color:' + (debt > 0.5 ? "var(--debt)" : "var(--paid)") + '">' + rub(debt) + '</b><span>к оплате за прошедшие</span></div><div class="kpi"><b>' + rub(paid) + "</b><span>оплачено</span></div></div>" +
-      (list.length ? '<div class="scroll"><table><thead><tr><th class="l">Дата</th><th>Начало</th><th>Часы</th><th>Долей</th><th>Моя сумма</th><th>Отметка</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="panel empty">Тренировок пока нет.</div>');
+      (list.length ? '<div class="scroll"><table><thead><tr><th class="l">Дата</th><th>Начало</th><th>Часы</th><th>Долей</th><th>Моя сумма</th><th>Отметка</th></tr></thead><tbody>' + rows + "</tbody></table></div>" : '<div class="panel empty">Тренировок пока нет.</div>') +
+      '<section class="panel">' + notifyBox() + "</section>";
+    bindNotify();
     qa("button.mark[data-s]").forEach(function (b) {
       b.addEventListener("click", function () {
         if (busy) return;
@@ -1070,7 +1086,21 @@
       '<label for="c-disc">Скидка организатору, ₽<input type="number" id="c-disc" value="' + st.org_discount + '" step="50"></label>' +
       '<label for="c-vdays" title="Через сколько дней стирается видео, помеченное «Удалить»">Удаление видео, дней<input type="number" id="c-vdays" value="' + (st.video_days == null ? 30 : st.video_days) + '" min="1"></label></div>' +
       '<label for="c-mem">Участники, по одному в строке (собака владельца — отдельной строкой). Удалённые из списка скрываются, их история сохраняется.<textarea id="c-mem">' + esc(mem.map(function (m) { return m.name; }).join("\n")) + "</textarea></label>" +
-      '<div class="row"><button class="btn">Сохранить</button></div></form>';
+      '<div class="row"><button class="btn">Сохранить</button></div></form>' +
+      '<section class="panel" style="display:grid;gap:10px"><h2>Письма участникам</h2>' +
+      '<p class="note">Когда вы добавляете тренировку или кто-то предлагает трассу на будущую тренировку, всем зарегистрированным пользователям сайта уходит письмо. Если за 2 минуты добавлено несколько — придёт одно общее письмо. Автору о его же записи не пишем. Каждый может отписаться ссылкой из письма или галочкой во вкладке «Мои тренировки».</p>' +
+      '<label style="display:flex;gap:8px;align-items:center;color:var(--fg)"><input type="checkbox" id="acl-notify-all"' + (st.notify == null || +st.notify ? " checked" : "") + "> Рассылать письма о новых тренировках и трассах</label>" +
+      notifyBox() +
+      (S.notify_last ? '<div class="status">Последняя рассылка: ' + esc(S.notify_last.time) + " · отправлено писем: " + S.notify_last.sent + "</div>" : '<div class="status">Рассылок ещё не было.</div>') +
+      "</section>";
+
+    var na = q("#acl-notify-all");
+    if (na) na.addEventListener("change", function () {
+      na.disabled = true;
+      api("/settings", "POST", { notify: na.checked ? 1 : 0 }).then(function (st2) { S = st2; na.disabled = false; toast(na.checked ? "Рассылка включена." : "Рассылка выключена для всех."); },
+        function (e) { na.disabled = false; na.checked = !na.checked; toast(e.message); });
+    });
+    bindNotify();
 
     var imp = q("#acl-import");
     if (imp) imp.addEventListener("click", function () { imp.disabled = true; act("/import", "POST").then(function () { toast("Данные перенесены."); }, function () { imp.disabled = false; }); });

@@ -113,6 +113,7 @@ class ACL_API {
 			'role'      => $role,
 			'today'     => $today,
 			'user'      => is_user_logged_in() ? wp_get_current_user()->display_name : '',
+			'notify'    => ACL_Notify::user_on( get_current_user_id() ),
 			'links'     => array(
 				'login'    => wp_login_url( self::app_url() ),
 				'logout'   => wp_logout_url( self::app_url() ),
@@ -148,6 +149,7 @@ class ACL_API {
 
 		$marks = ACL_DB::marks();
 		$out['settings'] = $cfg;
+		$out['notify_last'] = get_option( 'acl_notify_last', null );
 		$out['members']  = array_map(
 			static function ( $m ) use ( $role ) {
 				$x = array( 'id' => $m['id'], 'name' => $m['name'], 'is_organizer' => $m['is_organizer'] );
@@ -315,6 +317,7 @@ class ACL_API {
 			$wpdb->update( ACL_DB::t( 'sessions' ), $data, array( 'id' => $id ) );
 		} else {
 			$wpdb->insert( ACL_DB::t( 'sessions' ), $data );
+			ACL_Notify::queue( 'session', $wpdb->insert_id );
 		}
 		return self::state();
 	}
@@ -331,7 +334,7 @@ class ACL_API {
 	public static function settings_save( WP_REST_Request $r ) {
 		global $wpdb;
 		$s = ACL_DB::settings();
-		foreach ( array( 'rate', 'free_hours', 'setup_min', 'cleanup_min', 'org_shares', 'org_discount', 'video_days' ) as $k ) {
+		foreach ( array( 'rate', 'free_hours', 'setup_min', 'cleanup_min', 'org_shares', 'org_discount', 'video_days', 'notify' ) as $k ) {
 			if ( isset( $r[ $k ] ) && is_numeric( $r[ $k ] ) ) {
 				$s[ $k ] = max( 0, (float) $r[ $k ] );
 			}

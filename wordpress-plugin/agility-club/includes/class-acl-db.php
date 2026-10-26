@@ -149,6 +149,7 @@ class ACL_DB {
 			'org_shares'   => 2,
 			'org_discount' => 300,
 			'video_days'   => 30,
+			'notify'       => 1,
 		);
 	}
 
