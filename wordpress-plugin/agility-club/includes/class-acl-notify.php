@@ -28,6 +28,11 @@ class ACL_Notify {
 			'callback'            => array( __CLASS__, 'set_pref' ),
 			'permission_callback' => 'is_user_logged_in',
 		) );
+		register_rest_route( ACL_API::NS, '/notify/send', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'send_now' ),
+			'permission_callback' => array( 'ACL_API', 'can_manage' ),
+		) );
 		register_rest_route( ACL_API::NS, '/unsubscribe', array(
 			'methods'             => 'GET',
 			'callback'            => array( __CLASS__, 'unsubscribe' ),
@@ -225,6 +230,25 @@ class ACL_Notify {
 			'<div style="font-family:Arial,sans-serif;max-width:520px;margin:15vh auto;padding:0 16px;font-size:17px;line-height:1.5">' . esc_html( $msg ) .
 			'<p><a href="' . esc_url( home_url( '/' ) ) . '">Перейти на сайт</a></p></div>';
 		exit;
+	}
+
+	/** Ручная рассылка администратором о выбранных тренировках — сразу, без ожидания. */
+	public static function send_now( WP_REST_Request $r ) {
+		$ids = array_filter( array_map( 'intval', (array) $r['session_ids'] ) );
+		if ( ! $ids ) {
+			return new WP_Error( 'acl', 'Отметьте тренировки для рассылки.', array( 'status' => 400 ) );
+		}
+		if ( ! self::enabled() ) {
+			return new WP_Error( 'acl', 'Рассылка выключена в настройках.', array( 'status' => 400 ) );
+		}
+		$q = (array) get_option( self::QUEUE, array() );
+		foreach ( $ids as $id ) {
+			$q[] = array( 'type' => 'session', 'id' => $id, 'by' => get_current_user_id() );
+		}
+		update_option( self::QUEUE, $q, false );
+		wp_clear_scheduled_hook( self::HOOK );
+		self::flush();
+		return ACL_API::state();
 	}
 
 	/** Галочка на сайте: получать письма или нет. */

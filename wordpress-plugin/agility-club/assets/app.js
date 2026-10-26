@@ -1091,6 +1091,13 @@
       '<p class="note">Когда вы добавляете тренировку или кто-то предлагает трассу на будущую тренировку, всем зарегистрированным пользователям сайта уходит письмо. Если за 2 минуты добавлено несколько — придёт одно общее письмо. Автору о его же записи не пишем. Каждый может отписаться ссылкой из письма или галочкой во вкладке «Мои тренировки».</p>' +
       '<label style="display:flex;gap:8px;align-items:center;color:var(--fg)"><input type="checkbox" id="acl-notify-all"' + (st.notify == null || +st.notify ? " checked" : "") + "> Рассылать письма о новых тренировках и трассах</label>" +
       notifyBox() +
+      (function () {
+        var up = (S.sessions || []).filter(function (x) { return x.date >= S.today; }).sort(function (a, b) { return (a.date + a.start).localeCompare(b.date + b.start); });
+        if (!up.length) return "";
+        return '<details><summary style="cursor:pointer">Разослать письмо о тренировках вручную</summary><div style="display:grid;gap:6px;margin-top:8px">' +
+          up.map(function (x) { return '<label style="display:flex;gap:8px;align-items:center;color:var(--fg)"><input type="checkbox" data-ns="' + x.id + '"> ' + esc(fmtDate(x.date)) + (x.start ? " · " + esc(x.start) : "") + " · " + esc(x.hours) + " ч</label>"; }).join("") +
+          '<div class="row"><button type="button" class="btn small" id="acl-ns-send">Разослать сейчас</button></div></div></details>';
+      })() +
       (S.notify_last ? '<div class="status">Последняя рассылка: ' + esc(S.notify_last.time) + " · отправлено писем: " + S.notify_last.sent + "</div>" : '<div class="status">Рассылок ещё не было.</div>') +
       "</section>";
 
@@ -1101,6 +1108,15 @@
         function (e) { na.disabled = false; na.checked = !na.checked; toast(e.message); });
     });
     bindNotify();
+    var nsb = q("#acl-ns-send");
+    if (nsb) nsb.addEventListener("click", function () {
+      var ids = qa("input[data-ns]").filter(function (c) { return c.checked; }).map(function (c) { return +c.dataset.ns; });
+      if (!ids.length) { toast("Отметьте тренировки."); return; }
+      if (!nsb.dataset.armed) { nsb.dataset.armed = "1"; nsb.textContent = "Точно разослать всем?"; setTimeout(function () { if (nsb.isConnected) { delete nsb.dataset.armed; nsb.textContent = "Разослать сейчас"; } }, 4000); return; }
+      nsb.disabled = true; nsb.textContent = "Отправляю…";
+      api("/notify/send", "POST", { session_ids: ids }).then(function (st2) { S = st2; render(); toast("Отправлено писем: " + (S.notify_last ? S.notify_last.sent : 0)); },
+        function (e) { nsb.disabled = false; nsb.textContent = "Разослать сейчас"; toast(e.message); });
+    });
 
     var imp = q("#acl-import");
     if (imp) imp.addEventListener("click", function () { imp.disabled = true; act("/import", "POST").then(function () { toast("Данные перенесены."); }, function () { imp.disabled = false; }); });
