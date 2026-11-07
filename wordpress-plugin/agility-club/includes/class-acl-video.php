@@ -36,32 +36,32 @@ class ACL_Video {
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/me', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'toggle_me' ),
-			'permission_callback' => 'is_user_logged_in',
+			'permission_callback' => array( 'ACL_Course', 'is_member' ),
 		) );
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/note', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'note_add' ),
-			'permission_callback' => 'is_user_logged_in',
+			'permission_callback' => array( 'ACL_Course', 'is_member' ),
 		) );
 		register_rest_route( ACL_API::NS, '/video/note/(?P<nid>\d+)', array(
 			'methods'             => 'DELETE',
 			'callback'            => array( __CLASS__, 'note_delete' ),
-			'permission_callback' => 'is_user_logged_in',
+			'permission_callback' => array( 'ACL_Course', 'is_member' ),
 		) );
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/name', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'rename' ),
-			'permission_callback' => 'is_user_logged_in',
+			'permission_callback' => array( 'ACL_Course', 'is_member' ),
 		) );
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/fav', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'toggle_fav' ),
-			'permission_callback' => 'is_user_logged_in',
+			'permission_callback' => array( 'ACL_Course', 'is_member' ),
 		) );
 		register_rest_route( ACL_API::NS, '/video/(?P<id>\d+)/delete', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'delete_own' ),
-			'permission_callback' => 'is_user_logged_in',
+			'permission_callback' => array( 'ACL_Course', 'is_member' ),
 		) );
 		register_rest_route( ACL_API::NS, '/video/delete-date', array(
 			'methods'             => 'POST',
@@ -237,11 +237,11 @@ class ACL_Video {
 			return;
 		}
 		$id = (int) $_GET['acl_video']; // phpcs:ignore
-		if ( ! is_user_logged_in() ) {
+		if ( ! ACL_Course::is_member() ) {
 			status_header( 403 );
 			nocache_headers();
 			header( 'Content-Type: text/plain; charset=UTF-8' );
-			echo 'Видео доступно только после входа на сайт.';
+			echo 'Видео доступно только подтверждённым участникам клуба.';
 			exit;
 		}
 		global $wpdb;

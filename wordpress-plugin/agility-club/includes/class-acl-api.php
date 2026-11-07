@@ -121,8 +121,8 @@ class ACL_API {
 				'newPost'  => 'admin' === $role ? admin_url( 'post-new.php' ) : '',
 			),
 			'news'      => self::news(),
-			// Видео — только вошедшим на сайт
-			'videos'    => is_user_logged_in() ? ACL_DB::videos( get_current_user_id(), true ) : array(),
+			// Видео — только подтверждённым участникам и администраторам
+			'videos'    => ACL_Course::is_member() ? ACL_DB::videos( get_current_user_id(), true ) : array(),
 			'video_days' => (int) $cfg['video_days'],
 			'course_titles' => ACL_Course::titles(),
 			'sessions'  => array(),

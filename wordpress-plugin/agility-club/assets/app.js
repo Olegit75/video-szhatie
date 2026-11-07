@@ -962,10 +962,11 @@
   }
 
   function viewVideo(v) {
-    if (!S.user) {
-      v.innerHTML = '<div class="panel"><div class="empty">Видео тренировок доступно только участникам клуба. ' +
-        (S.links && S.links.login ? '<a href="' + esc(S.links.login) + '">Войдите</a>' : "Войдите") +
-        (S.links && S.links.register ? ' или <a href="' + esc(S.links.register) + '">зарегистрируйтесь</a>' : "") + ", чтобы смотреть.</div></div>";
+    if (S.role !== "member" && S.role !== "admin") {
+      v.innerHTML = '<div class="panel"><div class="empty">Видео тренировок доступно только подтверждённым участникам клуба. ' +
+        (S.role === "pending" ? "Выберите себя на вкладке «Кто вы?» и дождитесь подтверждения администратора."
+          : (S.links && S.links.login ? '<a href="' + esc(S.links.login) + '">Войдите</a>' : "Войдите") +
+            (S.links && S.links.register ? ' или <a href="' + esc(S.links.register) + '">зарегистрируйтесь</a>' : "") + ".") + "</div></div>";
       return;
     }
     if (openVideo) {
