@@ -962,6 +962,12 @@
   }
 
   function viewVideo(v) {
+    if (!S.user) {
+      v.innerHTML = '<div class="panel"><div class="empty">Видео тренировок доступно только участникам клуба. ' +
+        (S.links && S.links.login ? '<a href="' + esc(S.links.login) + '">Войдите</a>' : "Войдите") +
+        (S.links && S.links.register ? ' или <a href="' + esc(S.links.register) + '">зарегистрируйтесь</a>' : "") + ", чтобы смотреть.</div></div>";
+      return;
+    }
     if (openVideo) {
       var one = (S.videos || []).filter(function (y) { return String(y.id) === String(openVideo); })[0];
       if (one) { viewOneVideo(v, one); return; }

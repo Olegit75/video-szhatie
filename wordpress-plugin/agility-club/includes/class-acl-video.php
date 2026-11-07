@@ -145,21 +145,168 @@ class ACL_Video {
 		) );
 	}
 
-	private static function base() {
+	/** Папка в uploads, где видео лежали до версии 1.11 (открыта всем по прямой ссылке). */
+	private static function legacy_dir() {
 		$up = wp_upload_dir();
-		return array(
-			'dir' => trailingslashit( $up['basedir'] ) . self::DIR,
-			'url' => trailingslashit( $up['baseurl'] ) . self::DIR,
-		);
+		return trailingslashit( $up['basedir'] ) . self::DIR;
+	}
+
+	/**
+	 * Корень хранилища видео — вне публичной папки сайта, чтобы файл нельзя было
+	 * открыть по прямой ссылке. Выбирается один раз и запоминается.
+	 * Если над сайтом писать нельзя — папка со случайным именем в uploads, закрытая .htaccess.
+	 */
+	public static function store_root() {
+		$root = (string) get_option( 'acl_video_root', '' );
+		if ( '' !== $root && is_dir( $root ) ) {
+			return $root;
+		}
+		$cands = array( dirname( untrailingslashit( ABSPATH ) ) . '/agility-private' );
+		$up    = wp_upload_dir();
+		$cands[] = trailingslashit( $up['basedir'] ) . 'agility-private-' . strtolower( wp_generate_password( 16, false ) );
+		foreach ( $cands as $c ) {
+			if ( wp_mkdir_p( $c ) && is_writable( $c ) ) {
+				$root = $c;
+				break;
+			}
+		}
+		if ( '' === $root ) {
+			$root = self::legacy_dir(); // крайний случай: оставляем как было
+		}
+		self::protect( $root );
+		update_option( 'acl_video_root', $root, false );
+		return $root;
+	}
+
+	/** Запрет прямого доступа (на случай, если папка всё же внутри сайта). */
+	private static function protect( $dir ) {
+		if ( ! file_exists( $dir . '/.htaccess' ) ) {
+			file_put_contents( $dir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n" ); // phpcs:ignore
+		}
+		if ( ! file_exists( $dir . '/index.php' ) ) {
+			file_put_contents( $dir . '/index.php', "<?php\n// Silence is golden.\n" ); // phpcs:ignore
+		}
+	}
+
+	/** Полный путь к файлу видео по значению колонки file (agility-videos/ГГГГ-ММ-ДД/имя.mp4). */
+	public static function path( $file ) {
+		if ( ! $file || 0 !== strpos( $file, self::DIR . '/' ) || false !== strpos( $file, '..' ) ) {
+			return '';
+		}
+		return self::store_root() . '/' . substr( $file, strlen( self::DIR ) + 1 );
+	}
+
+	/** Ссылка для плеера: через PHP с проверкой входа. */
+	public static function play_url( $id ) {
+		return add_query_arg( 'acl_video', (int) $id, home_url( '/' ) );
+	}
+
+	private static function base() {
+		return array( 'dir' => self::store_root() );
+	}
+
+	/**
+	 * Переносит видео из старой публичной папки uploads/agility-videos в закрытое хранилище.
+	 * Переименование в пределах диска мгновенное, файлы не копируются.
+	 */
+	public static function migrate() {
+		$old  = self::legacy_dir();
+		$root = self::store_root();
+		if ( $old === $root || ! is_dir( $old ) ) {
+			return;
+		}
+		foreach ( (array) scandir( $old ) as $d ) {
+			if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $d ) || ! is_dir( $old . '/' . $d ) ) {
+				continue;
+			}
+			wp_mkdir_p( $root . '/' . $d );
+			foreach ( (array) scandir( $old . '/' . $d ) as $f ) {
+				if ( '.' === $f || '..' === $f ) {
+					continue;
+				}
+				@rename( $old . '/' . $d . '/' . $f, $root . '/' . $d . '/' . $f ); // phpcs:ignore
+			}
+			@rmdir( $old . '/' . $d ); // phpcs:ignore
+		}
+		self::protect( $old );
+	}
+
+	/** Отдаёт файл видео вошедшему пользователю, с поддержкой перемотки (Range). */
+	public static function serve() {
+		if ( ! isset( $_GET['acl_video'] ) ) { // phpcs:ignore
+			return;
+		}
+		$id = (int) $_GET['acl_video']; // phpcs:ignore
+		if ( ! is_user_logged_in() ) {
+			status_header( 403 );
+			nocache_headers();
+			header( 'Content-Type: text/plain; charset=UTF-8' );
+			echo 'Видео доступно только после входа на сайт.';
+			exit;
+		}
+		global $wpdb;
+		$file = $wpdb->get_var( $wpdb->prepare( 'SELECT file FROM ' . ACL_DB::t( 'videos' ) . ' WHERE id = %d', $id ) ); // phpcs:ignore
+		$path = self::path( (string) $file );
+		if ( '' === $path || ! is_file( $path ) ) {
+			status_header( 404 );
+			exit;
+		}
+		$size  = filesize( $path );
+		$start = 0;
+		$end   = $size - 1;
+		$range = isset( $_SERVER['HTTP_RANGE'] ) ? (string) $_SERVER['HTTP_RANGE'] : ''; // phpcs:ignore
+		if ( preg_match( '/bytes=(\d*)-(\d*)/', $range, $m ) ) {
+			if ( '' === $m[1] && '' !== $m[2] ) {
+				$start = max( 0, $size - (int) $m[2] );
+			} else {
+				$start = (int) $m[1];
+				if ( '' !== $m[2] ) {
+					$end = min( (int) $m[2], $size - 1 );
+				}
+			}
+			if ( $start > $end || $start >= $size ) {
+				status_header( 416 );
+				header( 'Content-Range: bytes */' . $size );
+				exit;
+			}
+			status_header( 206 );
+			header( 'Content-Range: bytes ' . $start . '-' . $end . '/' . $size );
+		} else {
+			status_header( 200 );
+		}
+		if ( function_exists( 'session_write_close' ) ) {
+			@session_write_close(); // phpcs:ignore
+		}
+		while ( ob_get_level() ) {
+			ob_end_clean();
+		}
+		@set_time_limit( 0 ); // phpcs:ignore
+		header( 'Content-Type: video/mp4' );
+		header( 'Accept-Ranges: bytes' );
+		header( 'Content-Length: ' . ( $end - $start + 1 ) );
+		header( 'Cache-Control: private, max-age=86400' );
+		header( 'X-Content-Type-Options: nosniff' );
+		if ( isset( $_SERVER['REQUEST_METHOD'] ) && 'HEAD' === $_SERVER['REQUEST_METHOD'] ) {
+			exit;
+		}
+		$fh = fopen( $path, 'rb' ); // phpcs:ignore
+		fseek( $fh, $start );
+		$left = $end - $start + 1;
+		while ( $left > 0 && ! feof( $fh ) && ! connection_aborted() ) {
+			$buf   = fread( $fh, (int) min( 1048576, $left ) ); // phpcs:ignore
+			$left -= strlen( $buf );
+			echo $buf; // phpcs:ignore
+			flush();
+		}
+		fclose( $fh ); // phpcs:ignore
+		exit;
 	}
 
 	private static function ensure_dirs() {
 		$b   = self::base();
 		$tmp = $b['dir'] . '/.tmp';
 		wp_mkdir_p( $tmp );
-		if ( ! file_exists( $b['dir'] . '/index.php' ) ) {
-			file_put_contents( $b['dir'] . '/index.php', "<?php\n// Silence is golden.\n" ); // phpcs:ignore
-		}
+		self::protect( $b['dir'] );
 		if ( ! file_exists( $tmp . '/.htaccess' ) ) {
 			file_put_contents( $tmp . '/.htaccess', "Require all denied\nDeny from all\n" ); // phpcs:ignore
 		}
@@ -243,7 +390,7 @@ class ACL_Video {
 		$wpdb->insert( ACL_DB::t( 'videos' ), array(
 			'date'  => $date,
 			'title' => $title,
-			'url'   => $b['url'] . '/' . $date . '/' . rawurlencode( $name ),
+			'url'   => '',
 			'file'  => self::DIR . '/' . $date . '/' . $name,
 			'size'  => $size,
 		) );
@@ -254,9 +401,8 @@ class ACL_Video {
 	public static function delete_row( $id ) {
 		global $wpdb;
 		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT file FROM ' . ACL_DB::t( 'videos' ) . ' WHERE id = %d', $id ) ); // phpcs:ignore
-		if ( $row && $row->file && 0 === strpos( $row->file, self::DIR . '/' ) && false === strpos( $row->file, '..' ) ) {
-			$up   = wp_upload_dir();
-			$path = trailingslashit( $up['basedir'] ) . $row->file;
+		$path = $row ? self::path( (string) $row->file ) : '';
+		if ( '' !== $path ) {
 			if ( file_exists( $path ) ) {
 				unlink( $path ); // phpcs:ignore
 			}
@@ -435,3 +581,4 @@ add_filter( 'application_password_is_api_request', static function ( $is ) {
 } );
 add_action( 'acl_video_cleanup', array( 'ACL_Video', 'cleanup' ) );
 add_action( 'init', array( 'ACL_Video', 'schedule' ) );
+add_action( 'init', array( 'ACL_Video', 'serve' ), 20 );

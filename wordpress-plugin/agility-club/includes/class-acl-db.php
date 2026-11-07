@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class ACL_DB {
 
-	const DB_VERSION = '9';
+	const DB_VERSION = '10';
 
 	public static function t( $name ) {
 		global $wpdb;
@@ -32,6 +32,7 @@ class ACL_DB {
 	public static function maybe_upgrade() {
 		if ( get_option( 'acl_db_version' ) !== self::DB_VERSION ) {
 			self::activate();
+			ACL_Video::migrate();
 		}
 	}
 
@@ -298,6 +299,9 @@ class ACL_DB {
 			}
 		}
 		foreach ( $rows as &$r ) {
+			if ( (int) $r['local'] ) {
+				$r['url'] = ACL_Video::play_url( (int) $r['id'] );
+			}
 			$r['notes']  = isset( $notes[ (int) $r['id'] ] ) ? $notes[ (int) $r['id'] ] : array();
 			$ids         = isset( $by[ (int) $r['id'] ] ) ? $by[ (int) $r['id'] ] : array();
 			$r['mine']   = $uid && in_array( (int) $uid, $ids, true );
