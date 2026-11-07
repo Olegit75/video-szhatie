@@ -19,6 +19,7 @@ class ACL_Video {
 	const DIR       = 'agility-videos';
 	const MAX_CHUNK = 16777216;   // 16 МБ на часть — с запасом
 	const MAX_FILE  = 2147483648; // 2 ГБ на видео
+	const SERVE_CHUNK = 2097152;  // 2 МБ на один ответ плееру
 
 	public static function register() {
 		$admin = array( 'ACL_API', 'can_manage' );
@@ -264,6 +265,9 @@ class ACL_Video {
 					$end = min( (int) $m[2], $size - 1 );
 				}
 			}
+			// Отдаём не больше 2 МБ за запрос: браузер сам попросит следующий кусок.
+			// Иначе PHP-процесс висит, пока плеер не дочитает весь файл, и хостингу не хватает процессов.
+			$end = min( $end, $start + self::SERVE_CHUNK - 1 );
 			if ( $start > $end || $start >= $size ) {
 				status_header( 416 );
 				header( 'Content-Range: bytes */' . $size );
