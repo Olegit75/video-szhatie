@@ -129,11 +129,20 @@
         vd.addEventListener(ev, function () { if (!vd.dataset.st) { vQueue = vQueue.filter(function (x) { return x !== vd; }); vLoad(vd, true); if (ev === "play") vd.play().catch(function () {}); } }, { passive: true });
       });
     });
-    if (!("IntersectionObserver" in window)) { Array.prototype.forEach.call(list, function (vd) { vLoad(vd); }); return; }
-    vObs = new IntersectionObserver(function (es) {
-      es.forEach(function (e) { if (e.isIntersecting) { vObs.unobserve(e.target); vLoad(e.target); } });
-    }, { rootMargin: "300px 0px" });
-    Array.prototype.forEach.call(list, function (vd) { vObs.observe(vd); });
+    // Все ролики встают в очередь по порядку; видимые на экране — вперёд очереди
+    Array.prototype.forEach.call(list, function (vd) { if (vQueue.indexOf(vd) < 0) vQueue.push(vd); });
+    if ("IntersectionObserver" in window) {
+      vObs = new IntersectionObserver(function (es) {
+        es.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          vObs.unobserve(e.target);
+          var i = vQueue.indexOf(e.target);
+          if (i > 0) { vQueue.splice(i, 1); vQueue.unshift(e.target); }
+        });
+      }, { rootMargin: "300px 0px" });
+      Array.prototype.forEach.call(list, function (vd) { vObs.observe(vd); });
+    }
+    setTimeout(vNext, 0);
   }
 
   /* ---------- Расписание ---------- */
