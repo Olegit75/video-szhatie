@@ -87,6 +87,53 @@
     });
     var v = q("#acl-view");
     ({ schedule: viewSchedule, profile: viewProfile, mine: viewMine, sessions: viewSessions, debts: viewDebts, news: viewNews, courses: viewCourses, video: viewVideo, notes: viewNotes, settings: viewSettings }[tab])(v);
+    lazyVideos(v);
+  }
+
+  /*
+   * Видео отдаёт PHP с проверкой доступа, а хостинг держит лишь несколько PHP-процессов разом.
+   * Поэтому ролики подгружаются по очереди (не больше двух сразу) и только когда видны на экране;
+   * ролик, который начали смотреть, загружается вне очереди. При ошибке — повтор через 2–4 с.
+   */
+  var vQueue = [], vBusy = 0, V_MAX = 2, vObs = null;
+  function vLoad(vd, now) {
+    if (!vd.dataset.src || vd.dataset.st) return;
+    if (!now && vBusy >= V_MAX) { if (vQueue.indexOf(vd) < 0) vQueue.push(vd); return; }
+    vd.dataset.st = "1"; vBusy++;
+    var tries = 0, done = false;
+    function fin() { if (done) return; done = true; vBusy = Math.max(0, vBusy - 1); vNext(); }
+    vd.addEventListener("loadedmetadata", fin);
+    vd.addEventListener("error", function () {
+      if (vd.getAttribute("src") && tries < 2 && document.contains(vd)) {
+        tries++;
+        setTimeout(function () { vd.src = vd.dataset.src; vd.load(); }, 2000 * tries);
+      } else fin();
+    });
+    vd.preload = "metadata";
+    vd.src = vd.dataset.src;
+  }
+  function vNext() {
+    while (vBusy < V_MAX && vQueue.length) {
+      var vd = vQueue.shift();
+      if (document.contains(vd)) vLoad(vd);
+    }
+  }
+  function lazyVideos(scope) {
+    vQueue = vQueue.filter(function (x) { return document.contains(x); });
+    vBusy = 0; // старые элементы удалены перерисовкой
+    if (vObs) vObs.disconnect();
+    var list = scope.querySelectorAll("video[data-src]");
+    if (!list.length) return;
+    Array.prototype.forEach.call(list, function (vd) {
+      ["play", "pointerdown", "touchstart"].forEach(function (ev) {
+        vd.addEventListener(ev, function () { if (!vd.dataset.st) { vQueue = vQueue.filter(function (x) { return x !== vd; }); vLoad(vd, true); if (ev === "play") vd.play().catch(function () {}); } }, { passive: true });
+      });
+    });
+    if (!("IntersectionObserver" in window)) { Array.prototype.forEach.call(list, function (vd) { vLoad(vd); }); return; }
+    vObs = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { vObs.unobserve(e.target); vLoad(e.target); } });
+    }, { rootMargin: "300px 0px" });
+    Array.prototype.forEach.call(list, function (vd) { vObs.observe(vd); });
   }
 
   /* ---------- Расписание ---------- */
@@ -494,7 +541,7 @@
   function videoItem(x, a, logged) {
     var local = +x.local === 1;
     var media = local
-      ? '<video controls preload="metadata" playsinline src="' + esc(x.url) + '" class="acl-video"></video>'
+      ? '<video controls preload="none" playsinline data-src="' + esc(x.url) + '" class="acl-video"></video>'
       : '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">Открыть видео</a>';
     var time = (/(\d{1,2}:\d{2})\s*$/.exec(x.title) || [])[1];
     var head = '<h3 data-vhead="' + x.id + '"' + (bigView ? "" : ' style="font-size:14px"') + ">" + headInner(x, bigView ? x.title : (time || x.title)) + "</h3>";
